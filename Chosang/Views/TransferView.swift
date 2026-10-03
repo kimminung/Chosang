@@ -52,6 +52,7 @@ struct ReceivePane: View {
     @Environment(AppModel.self) private var model
     @State private var receiver = ChosangReceiver(deviceName: AppModel.localDeviceName)
     @State private var note = ""
+    @State private var importing = false
 
     var body: some View {
         ScrollView {
@@ -80,6 +81,16 @@ struct ReceivePane: View {
         }
         .onAppear { if model.launch.receive, case .idle = receiver.phase { receiver.start() } }
         .onDisappear { receiver.stop() }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { result in
+            guard case .success(let url) = result else { return }
+            note = "여는 중…"
+            Task { note = await model.open(url) ?? "" }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { importing = true } label: { Label("파일 열기", systemImage: "folder") }
+            }
+        }
     }
 
     private var idleCard: some View {
@@ -89,6 +100,12 @@ struct ReceivePane: View {
             Text("이 기기를 수신 대기 상태로 두면 6자리 코드가 나옵니다. iPhone·Mac 의 \"보내기\" 에서 이 기기를 고르고 그 코드를 입력하세요. 같은 Wi‑Fi 또는 근거리(P2P)면 됩니다.")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("수신 대기 시작") { receiver.start() }.buttonStyle(.borderedProminent).controlSize(.large)
+            Divider().frame(maxWidth: 280)
+            // 에어드랍·파일 앱으로 이미 받아 둔 파일을 직접 연다 (전송 없이)
+            Button { importing = true } label: { Label("파일에서 불러오기", systemImage: "folder") }
+                .buttonStyle(.bordered)
+            Text("에어드랍이나 파일 앱으로 받은 `.chosangcapture`·`.chosang` 을 바로 열 수 있습니다.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .padding(20)
     }
@@ -127,11 +144,18 @@ struct ReceivePane: View {
             Text(url.lastPathComponent).font(.caption.monospaced()).textSelection(.enabled)
             Text(summary(of: url, kind: h.kind)).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             HStack {
-                if h.kind == .persona {
+                switch h.kind {
+                case .persona:
                     Button("미리보기에서 열기") { open(url) }.buttonStyle(.borderedProminent)
+                case .capture:
+                    Button(model.isFitting ? "흉상 만드는 중…" : "이 캡처로 흉상 만들기") { build(url) }
+                        .buttonStyle(.borderedProminent).disabled(model.isFitting)
+                case .other:
+                    EmptyView()
                 }
                 Button("또 받기") { receiver.start() }.buttonStyle(.bordered)
             }
+            if model.isFitting { ProgressView().controlSize(.small) }
         }
         .padding(20)
     }
@@ -153,8 +177,10 @@ struct ReceivePane: View {
                                     Text(summary(of: url, kind: .from(fileName: url.lastPathComponent))).font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if TransferItem.Kind.from(fileName: url.lastPathComponent) == .persona {
-                                    Button("열기") { open(url) }.font(.caption)
+                                switch TransferItem.Kind.from(fileName: url.lastPathComponent) {
+                                case .persona: Button("열기") { open(url) }.font(.caption)
+                                case .capture: Button("흉상 만들기") { build(url) }.font(.caption).disabled(model.isFitting)
+                                case .other: EmptyView()
                                 }
                             }
                         }
@@ -194,6 +220,15 @@ struct ReceivePane: View {
     private func open(_ url: URL) {
         Task {
             note = await model.loadPersona(from: url) ?? ""
+            if model.loadError == nil { model.tab = .preview }
+        }
+    }
+
+    /// 캡처 번들 → 밀집 피팅 → 미리보기 (받은 걸 바로 내 흉상으로).
+    private func build(_ url: URL) {
+        note = "피팅 중… (1220 정점 패치 치환 + 두상 전파)"
+        Task {
+            note = await model.buildPersona(fromCapture: url) ?? ""
             if model.loadError == nil { model.tab = .preview }
         }
     }

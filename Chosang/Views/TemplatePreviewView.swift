@@ -87,7 +87,8 @@ final class PreviewHolder {
     var cameraMode = ""
 
     func key(_ model: AppModel) -> String {
-        "\(model.templateSource.rawValue)|\(model.template.cacheKey)|\(model.identity?.scale ?? 0)|\(model.identity?.positions.first?.y ?? 0)|\(model.usdzEntity == nil)"
+        // sheetMode 는 자동 깜빡임·시선을 끄므로 키에 넣어 토글할 때 리그를 다시 만든다(끄고 나면 깜빡임이 돌아와야 한다).
+        "\(model.templateSource.rawValue)|\(model.template.cacheKey)|\(model.identity?.scale ?? 0)|\(model.identity?.positions.first?.y ?? 0)|\(model.usdzEntity == nil)|\(model.sheetMode)|\(model.albedoTexture == nil)|\(model.useAlbedo)"
     }
 
     func rebuildIfNeeded(model: AppModel) { if key(model) != builtKey { rebuild(model: model) } }
@@ -98,7 +99,7 @@ final class PreviewHolder {
         anchor.children.removeAll()
         bust = nil; usdz = nil
         do {
-            let b = try BustEntity(template: model.template, identity: model.identity)
+            let b = try BustEntity(template: model.template, identity: model.identity, material: model.bustMaterial)
             var rig = FaceRigComponent()
             rig.autoBlink = !model.sheetMode
             rig.autoGaze = !model.sheetMode
@@ -191,11 +192,21 @@ final class PreviewHolder {
         var base: ArkitWeights
         var pose = ClipPlayer.Pose.empty
         if model.sheetMode {
-            // 셰이프 시트: 52 셰이프를 dwell 초마다 하나씩 1.0
+            // 셰이프 시트: 52 셰이프를 dwell 초마다 하나씩 1.0. **한 바퀴 돌면 스스로 멈춘다**(무한 반복이면 빠져나올 길이 없다).
             sheetClock += Double(dt)
-            if sheetClock >= model.sheetDwell { sheetClock = 0; model.sheetIndex = (model.sheetIndex + 1) % ArkitShape.count }
+            if sheetClock >= model.sheetDwell {
+                sheetClock = 0
+                let next = model.sheetIndex + 1
+                if next >= ArkitShape.count {
+                    model.sheetIndex = 0
+                    model.sheetMode = false
+                    model.weights = .zero
+                } else {
+                    model.sheetIndex = next
+                }
+            }
             base = ArkitWeights()
-            base[ArkitShape.allCases[model.sheetIndex]] = 1
+            if model.sheetMode { base[ArkitShape.allCases[model.sheetIndex]] = 1 }
         } else {
             if model.selectedClip != lastClip {
                 lastClip = model.selectedClip

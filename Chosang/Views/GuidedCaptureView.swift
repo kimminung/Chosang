@@ -441,9 +441,10 @@ struct GuidedCaptureView<Source: GuidedCaptureSource>: View {
             try CaptureBundleStore.write(bundle, to: folder)
             savedFolder = folder
             let size = folderSize(folder)
-            message = String(format: "저장: Documents/Captures/%@ · %.1f MB", folder.lastPathComponent, size)
+            message = String(format: "저장: 파일 앱 › 나의 기기 › 초상 › Captures/%@ · %.1f MB", folder.lastPathComponent, size)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             source.stop()
+            export()   // 공유용 zip 을 미리 만들어 둔다 — 안 그러면 "내보내기" 를 두 번 눌러야 한다
         } catch { message = "저장 실패: \(error.localizedDescription)" }
     }
 
@@ -455,7 +456,6 @@ struct GuidedCaptureView<Source: GuidedCaptureSource>: View {
             try? FileManager.default.removeItem(at: url)
             try ZipArchive.zipFolder(folder).write(to: url)
             exportURL = url
-            message = "내보내기 준비됨 — 공유 버튼을 다시 누르세요"
         } catch { message = "내보내기 실패: \(error.localizedDescription)" }
     }
 

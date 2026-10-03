@@ -62,7 +62,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "chosang-validate",
-            dependencies: ["ChosangCore", "ChosangIO", "ChosangValidate", "ChosangTexture", "ChosangRig"],
+            dependencies: ["ChosangCore", "ChosangIO", "ChosangValidate", "ChosangTexture", "ChosangRig", "ChosangFit"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

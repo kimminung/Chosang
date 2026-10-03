@@ -80,10 +80,21 @@ struct PreviewScreen: View {
                 #endif
                 .overlay(alignment: .topLeading) {
                     if model.sheetMode {
-                        // 셰이프 시트(T-106): 현재 셰이프 이름을 타일에 새긴다
-                        Text("\(model.sheetIndex + 1)/52  \(ArkitShape.allCases[model.sheetIndex].rawValue)")
-                            .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                            .padding(8).background(.black.opacity(0.6)).foregroundStyle(.white).padding(10)
+                        // 셰이프 시트(T-106): 현재 셰이프 이름을 타일에 새긴다.
+                        // 이 모드에서는 오른쪽 패널을 숨기므로 **여기에 끄는 길을 둔다** — 없으면 빠져나올 수 없다.
+                        HStack(spacing: 10) {
+                            Text("\(model.sheetIndex + 1)/52  \(ArkitShape.allCases[model.sheetIndex].rawValue)")
+                                .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                            Button {
+                                model.sheetMode = false
+                                model.weights = .zero
+                            } label: {
+                                Label("시트 끄기", systemImage: "xmark.circle.fill").font(.callout.bold())
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .keyboardShortcut(.escape, modifiers: [])
+                        }
+                        .padding(8).background(.black.opacity(0.6)).foregroundStyle(.white).padding(10)
                     }
                 }
             if model.sheetMode { EmptyView() } else {
@@ -106,6 +117,52 @@ struct PreviewScreen: View {
                             .font(.caption)
                         }
                         Toggle("턴테이블", isOn: $model.turntable)
+                        // 이 기기에서 찍은 캡처로 바로 흉상 만들기 (전송 없이) — iPhone·Mac
+                        if model.fitSummary == nil, let latest = model.latestLocalCapture {
+                            Button {
+                                Task { await model.buildFromLatestCapture() }
+                            } label: {
+                                Label(model.isFitting ? "만드는 중…" : "내 캡처로 흉상 만들기 (컷 \(latest.shots.count))",
+                                      systemImage: "person.crop.circle.badge.plus")
+                            }
+                            .font(.caption).disabled(model.isFitting)
+                            if model.isFitting { ProgressView().controlSize(.small) }
+                        }
+                        if let fit = model.fitSummary {
+                            // 받은 캡처로 만든 내 흉상 — 원본 템플릿과 바로 비교할 수 있게 되돌리기도 둔다
+                            Divider()
+                            Label("내 흉상 (피팅됨)", systemImage: "person.crop.circle.badge.checkmark").font(.caption.bold()).foregroundStyle(.green)
+                            Text(fit).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                            if let tex = model.textureSummary {
+                                Text(tex).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                                Toggle("내 피부 텍스처", isOn: $model.useAlbedo).font(.caption)
+                                Toggle("알베도 상하 반전", isOn: $model.flipAlbedoV).font(.caption)
+                                if let preview = model.albedoPreview {
+                                    // UV 레이아웃을 눈으로 확인 — 얼굴이 제 위치에 찍혔는지 바로 보인다
+                                    Image(decorative: preview, scale: 1).resizable().aspectRatio(1, contentMode: .fit)
+                                        .frame(maxWidth: 160).clipShape(RoundedRectangle(cornerRadius: 6))
+                                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)))
+                                }
+                            }
+                            HStack {
+                                Button("템플릿 원본으로") {
+                                    model.identity = Identity.fromTemplate(model.template)
+                                    model.fitSummary = nil
+                                    model.albedoTexture = nil
+                                    model.textureSummary = nil
+                                    model.lastAlbedo = nil; model.lastMask = nil; model.savedPersonaURL = nil
+                                }
+                                if let url = model.savedPersonaURL {
+                                    ShareLink(item: url) { Text("내보내기") }
+                                } else {
+                                    Button(".chosang 저장") { Task { await model.savePersona() } }
+                                }
+                            }
+                            .font(.caption)
+                            if let url = model.savedPersonaURL {
+                                Text("저장: \(url.lastPathComponent)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
                         Text(model.templateStatus).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                         Text("정점 \(model.vertexCount) (렌더 \(model.renderVertexCount)) · \(model.deformationPath)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -142,9 +199,19 @@ struct PhonePreviewScreen: View {
                 .ignoresSafeArea()
                 .overlay(alignment: .top) {
                     if model.sheetMode {
-                        Text("\(model.sheetIndex + 1)/52  \(ArkitShape.allCases[model.sheetIndex].rawValue)")
-                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                            .padding(8).glassEffect().padding(.top, 8)
+                        // 하단 바를 숨기는 모드라 끄는 버튼을 여기 둔다 (없으면 빠져나올 수 없다)
+                        HStack(spacing: 8) {
+                            Text("\(model.sheetIndex + 1)/52  \(ArkitShape.allCases[model.sheetIndex].rawValue)")
+                                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                            Button {
+                                model.sheetMode = false
+                                model.weights = .zero
+                            } label: {
+                                Label("끄기", systemImage: "xmark.circle.fill").font(.caption.bold())
+                            }
+                            .buttonStyle(.glassProminent)
+                        }
+                        .padding(8).glassEffect().padding(.top, 8)
                     } else if let e = model.loadError {
                         Text(e).font(.caption).foregroundStyle(.red).padding(8).glassEffect().padding()
                     }
@@ -199,6 +266,27 @@ struct PhonePreviewScreen: View {
                     }
                     Section("성능") {
                         Text(String(format: "변형 %.2f ms · 프레임 %.1f ms (%.0f fps)", model.updateMilliseconds, model.frameMilliseconds, model.fps)).font(.caption.monospacedDigit())
+                    }
+                    Section("내 흉상") {
+                        if let latest = model.latestLocalCapture, model.fitSummary == nil {
+                            Button(model.isFitting ? "만드는 중…" : "내 캡처로 흉상 만들기 (컷 \(latest.shots.count))") {
+                                Task { await model.buildFromLatestCapture(); showInfo = false }
+                            }
+                            .disabled(model.isFitting)
+                        }
+                        if let fit = model.fitSummary {
+                            Text(fit).font(.caption)
+                            if let tex = model.textureSummary { Text(tex).font(.caption) }
+                            Toggle("내 피부 텍스처", isOn: $model.useAlbedo)
+                            Toggle("알베도 상하 반전", isOn: $model.flipAlbedoV)
+                            Button("템플릿 원본으로") {
+                                model.identity = Identity.fromTemplate(model.template)
+                                model.fitSummary = nil; model.albedoTexture = nil; model.textureSummary = nil
+                            }
+                        }
+                        if model.fitSummary == nil && model.latestLocalCapture == nil {
+                            Text("캡처 탭에서 5컷을 찍고 번들을 저장하면 여기서 바로 만들 수 있습니다").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Section("보기") {
                         Toggle("턴테이블", isOn: $model.turntable)

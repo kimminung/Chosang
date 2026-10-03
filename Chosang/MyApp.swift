@@ -22,6 +22,8 @@ struct ChosangApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
+                // T-604: AirDrop·파일 앱·공유 시트로 넘어온 `.chosang`/`.chosangcapture` 를 그대로 받는다.
+                .onOpenURL { url in Task { await model.open(url) } }
         }
         #if os(visionOS)
         .defaultSize(width: 980, height: 760)

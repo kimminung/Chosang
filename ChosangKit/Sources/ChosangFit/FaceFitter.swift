@@ -107,6 +107,26 @@ public enum FaceFitter {
                         eyeCenterL: eL, eyeCenterR: eR, eyeRadius: eyeR, patchDeltas: [:], quality: quality)
     }
 
+    /// 컷별 **얼굴 좌표 → 템플릿 좌표** 강체 변환 (회전 + 눈 중점 정렬 이동).
+    /// `fit` 의 1단계와 같은 계산이다. 텍스처 투영(M4)이 캡처 카메라를 템플릿 공간으로 옮길 때 쓴다 —
+    /// 캡처마다 머리 위치가 다르므로 이 변환 없이는 모든 컷이 어긋난 곳에 투영된다.
+    public static func alignments(bundle: CaptureBundle, template t: BustTemplate) -> [ShotKind: simd_float4x4] {
+        let pc = t.patchCount
+        let templatePatch = Array(t.patchPositions)
+        let templateAnchor = eyeMidpoint(templatePatch, manifest: t.manifest)
+        var out: [ShotKind: simd_float4x4] = [:]
+        for shot in bundle.shots {
+            let raw = shot.meta.faceVertexArray
+            guard raw.count == pc, let T = Procrustes.fit(source: raw, target: templatePatch, allowScale: true) else { continue }
+            let rotated = raw.map { T.rotation.act($0) }
+            let shift = templateAnchor - eyeMidpoint(rotated, manifest: t.manifest)
+            var m = simd_float4x4(T.rotation)
+            m.columns.3 = SIMD4(shift, 1)
+            out[shot.kind] = m
+        }
+        return out
+    }
+
     static func eyeLandmarks(_ m: TemplateManifest, count: Int) -> (Int, Int, Int, Int)? {
         guard let oL = m.landmark(.eyeLeftOuter), let iL = m.landmark(.eyeLeftInner), let iR = m.landmark(.eyeRightInner), let oR = m.landmark(.eyeRightOuter),
               [oL, iL, iR, oR].allSatisfy({ $0 < count }) else { return nil }

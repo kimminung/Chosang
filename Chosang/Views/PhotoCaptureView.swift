@@ -178,8 +178,12 @@ struct PhotoCaptureView: View {
         let meta = CaptureBundleMeta(device: PhotoCaptureSession.deviceDescription, sparse: true, arkitTriangleHash: nil, arkitVertexCount: 0, shots: shots.map(\.meta))
         let bundle = CaptureBundle(meta: meta, shots: shots)
         let folder = CaptureBundleStore.defaultFolder(for: meta.id)
-        do { try CaptureBundleStore.write(bundle, to: folder); savedFolder = folder; exportURL = nil; message = "저장: \(folder.path)" }
-        catch { message = "저장 실패: \(error.localizedDescription)" }
+        do {
+            try CaptureBundleStore.write(bundle, to: folder)
+            savedFolder = folder
+            message = "저장: \(folder.path)"
+            export()   // 공유용 zip 을 미리 만들어 둔다 (버튼 두 번 누르지 않게)
+        } catch { message = "저장 실패: \(error.localizedDescription)" }
     }
 
     /// 저장된 폴더 → `.chosangcapture`(zip) 임시 파일 → 공유 (T-204).
@@ -190,7 +194,6 @@ struct PhotoCaptureView: View {
             try? FileManager.default.removeItem(at: url)
             try ZipArchive.zipFolder(folder).write(to: url)
             exportURL = url
-            message = "내보내기 준비됨: \(url.lastPathComponent) — '내보내기…' 로 공유하세요"
         } catch { message = "내보내기 실패: \(error.localizedDescription)" }
     }
 }
