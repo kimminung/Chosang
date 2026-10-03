@@ -8,6 +8,7 @@
 
 #if os(macOS) || os(iOS)
 import SwiftUI
+import simd
 import UniformTypeIdentifiers
 import ImageIO
 import ChosangCore
@@ -15,6 +16,7 @@ import ChosangCapture
 import ChosangIO
 
 struct PhotoCaptureView: View {
+    @Environment(AppModel.self) private var model
     @State private var session = PhotoCaptureSession()
     @State private var shots: [CaptureShot] = []
     @State private var message = ""
@@ -29,6 +31,7 @@ struct PhotoCaptureView: View {
             Divider()
             ScrollView { panel.padding() }.frame(width: 360)
         }
+        .onAppear(perform: autoStart)
         .onDisappear { session.stop() }
         #else
         ScrollView {
@@ -38,8 +41,14 @@ struct PhotoCaptureView: View {
             }
             .padding()
         }
+        .onAppear(perform: autoStart)
         .onDisappear { session.stop() }
         #endif
+    }
+
+    /// 실행 인자 `camera=1` 이면 자동 시작 (스크린샷 자동화).
+    private func autoStart() {
+        if model.launch.camera, PhotoCaptureSession.hasCamera, !session.isRunning { session.start() }
     }
 
     // MARK: 미리보기 + 오버레이
@@ -49,6 +58,7 @@ struct PhotoCaptureView: View {
             ZStack {
                 if let cg = session.preview {
                     let fitted = fit(CGSize(width: cg.width, height: cg.height), in: geo.size)
+                    Group {
                     Image(decorative: cg, scale: 1).resizable().interpolation(.medium)
                         .frame(width: fitted.width, height: fitted.height).position(x: fitted.midX, y: fitted.midY)
                     Canvas { ctx, _ in
@@ -67,13 +77,14 @@ struct PhotoCaptureView: View {
                             ctx.stroke(Path(ellipseIn: CGRect(x: q.x - 4, y: q.y - 4, width: 8, height: 8)), with: .color(.cyan), lineWidth: 1.5)
                         }
                     }
+                    }
+                    .scaleEffect(x: mirror ? -1 : 1, y: 1)   // 거울 미리보기 — 영상·오버레이만 (저장 이미지는 비반전)
                 } else {
                     ContentUnavailableView(PhotoCaptureSession.hasCamera ? "카메라 대기" : "카메라 없음", systemImage: "web.camera",
                                            description: Text(PhotoCaptureSession.hasCamera ? "'카메라 시작' 을 누르세요. TrueDepth 없이 Vision 76점으로 희소 캡처합니다." : "시뮬레이터에는 카메라가 없습니다. '사진 불러오기' 로 파일을 분석하세요."))
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .scaleEffect(x: mirror ? -1 : 1, y: 1)   // 거울 미리보기 (저장 이미지는 비반전)
             .overlay(alignment: .topLeading) { statusBadge.padding(10) }
         }
     }
@@ -86,7 +97,6 @@ struct PhotoCaptureView: View {
             Text(String(format: "Vision 원값 yaw %.1f° pitch %.1f° · %d×%d · %@", s.visionYaw, s.visionPitch, s.imageWidth, s.imageHeight, session.cameraName))
         }
         .font(.caption.monospacedDigit()).padding(8).background(.black.opacity(0.55)).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: 8))
-        .scaleEffect(x: mirror ? -1 : 1, y: 1) // 배지는 다시 뒤집어 글자가 바로 보이게
     }
 
     private func fit(_ img: CGSize, in box: CGSize) -> CGRect {

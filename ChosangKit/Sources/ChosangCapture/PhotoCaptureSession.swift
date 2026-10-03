@@ -12,7 +12,7 @@ import Foundation
 import simd
 import ChosangCore
 #if os(macOS) || os(iOS)
-import AVFoundation
+@preconcurrency import AVFoundation
 import Vision
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -151,10 +151,12 @@ public final class PhotoCaptureSession: NSObject, AVCaptureVideoDataOutputSample
         guard let pb = CMSampleBufferGetImageBuffer(sampleBuffer), busy.tryAcquire() else { return }
         let ci = CIImage(cvPixelBuffer: pb)
         guard let cg = Self.sharedContext.createCGImage(ci, from: ci.extent) else { busy.release(); return }
+        let flag = busy
         Task.detached(priority: .userInitiated) { [weak self] in
-            defer { self?.busy.release() }
+            defer { flag.release() }
             let analysis = try? await Self.analyze(cg)
-            await MainActor.run { self?.ingest(image: cg, analysis: analysis) }
+            guard let strong = self else { return }
+            await MainActor.run { strong.ingest(image: cg, analysis: analysis) }
         }
     }
 

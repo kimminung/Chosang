@@ -18,12 +18,14 @@ struct CaptureView: View {
     @State private var message = ""
 
     var body: some View {
+        // TrueDepth/ARFaceTracking 이 없는 기기·시뮬레이터는 사진 폴백(T-205)으로 — 같은 번들 포맷, sparse = true
+        if FaceCaptureSession.isSupported { arkitBody } else { PhotoCaptureView() }
+    }
+
+    private var arkitBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("초상 캡처 (M0 스파이크용)").font(.title2.bold())
-                if !FaceCaptureSession.isSupported {
-                    ContentUnavailableView("얼굴 추적 불가", systemImage: "faceid", description: Text("TrueDepth 가 있는 iPhone 실기기에서 실행하세요. 시뮬레이터에는 ARFaceTracking 이 없습니다. 🧪"))
-                }
+                Text("초상 캡처 (TrueDepth · ARKit)").font(.title2.bold())
                 HStack {
                     Button(session.isRunning ? "세션 정지" : "세션 시작") { session.isRunning ? session.stop() : session.start() }
                         .buttonStyle(.borderedProminent)

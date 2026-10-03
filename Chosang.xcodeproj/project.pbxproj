@@ -277,6 +277,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5Z8G42AVKD;
+				CODE_SIGN_ENTITLEMENTS = Chosang/Chosang.entitlements;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -293,7 +294,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Chosang/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "초상";
-				INFOPLIST_KEY_NSCameraUsageDescription = "초상은 전면 TrueDepth 카메라와 ARKit 얼굴 추적으로 사진·깊이·얼굴 메시(1220점)를 기기 안에서만 촬영해 내 흉상 페르소나를 만듭니다. 얼굴 데이터는 생체 식별에 쓰지 않으며 서버로 보내지 않습니다.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "초상은 iPhone 의 전면 TrueDepth 카메라와 ARKit 얼굴 추적(사진·깊이·얼굴 메시 1220점), 또는 Mac·TrueDepth 없는 기기의 카메라 사진과 Vision 얼굴 랜드마크로 내 흉상 페르소나를 기기 안에서만 만듭니다. 얼굴 데이터는 생체 식별에 쓰지 않으며 서버로 보내지 않습니다.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "같은 Wi-Fi 의 Vision Pro·Mac 으로 페르소나(.chosang)를 보내고 받기 위해 로컬 네트워크를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "말할 때 입 모양을 움직이기 위해 마이크 음량만 측정합니다. 음성은 녹음하거나 전송하지 않습니다.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -333,6 +334,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5Z8G42AVKD;
+				CODE_SIGN_ENTITLEMENTS = Chosang/Chosang.entitlements;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -349,7 +351,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Chosang/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "초상";
-				INFOPLIST_KEY_NSCameraUsageDescription = "초상은 전면 TrueDepth 카메라와 ARKit 얼굴 추적으로 사진·깊이·얼굴 메시(1220점)를 기기 안에서만 촬영해 내 흉상 페르소나를 만듭니다. 얼굴 데이터는 생체 식별에 쓰지 않으며 서버로 보내지 않습니다.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "초상은 iPhone 의 전면 TrueDepth 카메라와 ARKit 얼굴 추적(사진·깊이·얼굴 메시 1220점), 또는 Mac·TrueDepth 없는 기기의 카메라 사진과 Vision 얼굴 랜드마크로 내 흉상 페르소나를 기기 안에서만 만듭니다. 얼굴 데이터는 생체 식별에 쓰지 않으며 서버로 보내지 않습니다.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "같은 Wi-Fi 의 Vision Pro·Mac 으로 페르소나(.chosang)를 보내고 받기 위해 로컬 네트워크를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "말할 때 입 모양을 움직이기 위해 마이크 음량만 측정합니다. 음성은 녹음하거나 전송하지 않습니다.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

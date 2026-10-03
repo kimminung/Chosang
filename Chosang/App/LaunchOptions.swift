@@ -21,10 +21,16 @@ struct LaunchOptions: Sendable {
     var previz = false
     /// `usdz=0`: 기본 템플릿의 Template.usdz 오버레이(눈알·입안) 생략 (진단용)
     var usdzOverlay = true
+    /// `camera=1`: 사진 폴백 캡처 탭(Mac·iOS 폴백)이 뜨자마자 카메라를 시작 (스크린샷 자동화)
+    var camera = false
 
+    /// 명령행 인자 + 환경변수 `CHOSANG_ARGS="tab=capture camera=1"`.
+    /// macOS 는 대시 없는 명령행 인자를 "열 문서" 로 취급해(문서 타입 선언 앱) 기본 창을 만들지 않으므로,
+    /// `open Chosang.app --env CHOSANG_ARGS="…"` 로 띄울 때는 환경변수를 쓴다. Xcode 스킴 Arguments 는 그대로 동작한다.
     static var current: LaunchOptions {
         var o = LaunchOptions()
-        for arg in CommandLine.arguments.dropFirst() {
+        let env = (ProcessInfo.processInfo.environment["CHOSANG_ARGS"] ?? "").split(separator: " ").map(String.init)
+        for arg in CommandLine.arguments.dropFirst() + env {
             let parts = arg.split(separator: "=", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
             let on = parts[1] == "1" || parts[1] == "true"
@@ -37,6 +43,7 @@ struct LaunchOptions: Sendable {
             case "sheet": o.sheet = on
             case "previz": o.previz = on
             case "usdz": o.usdzOverlay = on
+            case "camera": o.camera = on
             default: break
             }
         }

@@ -21,7 +21,8 @@ visionOS 27 · iOS 26 · macOS 26 단일 앱 타깃(Xcode 프로젝트·타깃·
 ## 빌드·검증
 - 마일스톤 끝: visionOS 기기·시뮬레이터, iOS 시뮬레이터, macOS 4개 빌드 통과.
 - Xcode 활성 대상이 실기기로 바뀌면 시뮬 빌드는 `xcodebuild -destination 'platform=visionOS Simulator,...' -derivedDataPath /tmp/chosang-dd CODE_SIGNING_ALLOWED=NO` 로 따로.
-- 시뮬레이터 자동 실행 인자: `fixture=<synthetic|perturbed> clip=<name> tab=<preview|capture|validate|spikes|receive> template=<legacy|synthetic>`.
+- 시뮬레이터 자동 실행 인자: `fixture=<synthetic|perturbed> clip=<name> tab=<preview|capture|validate|spikes|receive> template=<legacy|synthetic> camera=1`. Xcode 없이 macOS 앱을 띄울 때는 `open Chosang.app --env CHOSANG_ARGS="tab=capture camera=1"`(대시 없는 명령행 인자는 AppKit 이 "열 문서" 로 취급해 창이 안 뜬다). DerivedData 는 홈 아래로(`/tmp` 는 샌드박스 앱 실행 실패).
+- Xcode 가 불안정하면(튕김) 파일 편집·빌드는 파일 도구 + `xcodebuild`/`swift test` 로. 엔타이틀먼트는 `Chosang/Chosang.entitlements`.
 - 실기기 항목은 `Docs/Tasks.md` 체크리스트로 남기고 🧪 표시.
 - 검증기: `cd ChosangKit && swift run chosang-validate <Template 폴더>` / `--synthetic <폴더>` / `--list-legacy-failures`.
 

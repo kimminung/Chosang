@@ -87,6 +87,19 @@ API 시그니처는 문서가 성겨서 `xcrun -sdk macosx swiftc -typecheck` �
 
 **알려진 미확정**: 저장 이미지 방향(센서 가로 → 포트레이트 회전)과 그에 맞춘 intrinsics 변환(`fx'=fy, fy'=fx, cx'=H−cy, cy'=cx`)·카메라 변환(Z 축 −90°)은 코드에 넣었지만 실기기에서 재투영 오차로 검증해야 한다(M2 T-206).
 
+## T-205 — Vision 얼굴 자세 부호 · Mac 카메라 (Mac 실기기 관측, 2026-10-03)
+
+**질문**: `FaceObservation.yaw/pitch/roll` 의 부호가 우리 규약(yaw + = 피사체 왼쪽, pitch + = 위, roll + = 반시계)과 맞는가. Mac 에서 센서 FOV 를 읽을 수 있는가.
+
+**관측(MacBook Air FaceTime HD, `DetectFaceLandmarksRequest(.revision3)`)**
+| 동작 | Vision 원값 | 우리 값(`SparseFaceGeometry.pose`) |
+|---|---|---|
+| 정면, 화면을 내려다봄 | yaw −1.5° · pitch +11.3° | yaw +1.5°(코끝 부호) · pitch −11.3°(아래) |
+| 왼쪽 30° 로 고개 돌림 | yaw +30.9° · pitch −2.1° | yaw +30.9° · pitch +2.1° → "왼쪽 30°" 게이트 통과 |
+
+→ Vision yaw 는 우리 규약과 **같은 부호**(코끝 치우침과 일치), pitch 는 **반대**(오른손 좌표계: + 가 턱 내림). 코드는 yaw 를 랜드마크 부호로 보정하고 pitch 를 반전한다. 🧪 iPhone(전면, 세로)에서 1회 더 확인.
+`AVCaptureDevice.Format.videoFieldOfView` 는 `API_UNAVAILABLE(macos, visionos)` → Mac 은 FOV 60° 가정(`intrinsicsEstimated = true`). Vision 76점은 1080p 프레임에서 분석 겹침 없이(플래그로 프레임 버림) 실시간 추적됐다.
+
 ## 부록 — M0 에서 함께 측정한 수치 (SelfFitTests, `cd ChosangKit && swift test`)
 
 | 항목 | 값 |

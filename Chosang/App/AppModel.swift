@@ -46,7 +46,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         #elseif os(iOS)
         [.preview, .capture, .spikes]
         #else
-        [.preview, .validate, .spikes]
+        [.preview, .capture, .validate, .spikes]
         #endif
     }
 }

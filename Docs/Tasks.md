@@ -7,7 +7,7 @@
 ## M0 · 프로젝트 셋업 · 스파이크
 | ID | 작업 | 상태 |
 |---|---|---|
-| T-001 | Xcode 프로젝트 `Chosang`: 단일 앱 타깃 3 플랫폼(xros/xrsimulator/iphoneos/iphonesimulator/macosx, family 1,2,7), 번들 `com.coulson.Chosang`, 배포 visionOS 27 · iOS 26 · macOS 26, 자동 서명 팀 5Z8G42AVKD, 엔타이틀먼트 없음 | ✅ 1차 — Xcode 타깃 이름은 `MyApp`(자동 생성), 제품/표시 이름 Chosang/초상. 10/3 저녁 사용자가 `Desktop/Chosang` 으로 이동하고 프로젝트·타깃·폴더를 `Chosang` 으로 변경(INFOPLIST_FILE 경로 수정). macOS 샌드박스 카메라·오디오 입력·네트워크(빌드 설정) |
+| T-001 | Xcode 프로젝트 `Chosang`: 단일 앱 타깃 3 플랫폼(xros/xrsimulator/iphoneos/iphonesimulator/macosx, family 1,2,7), 번들 `com.coulson.Chosang`, 배포 visionOS 27 · iOS 26 · macOS 26, 자동 서명 팀 5Z8G42AVKD, 엔타이틀먼트 없음 → 3차: `Chosang/Chosang.entitlements`(샌드박스·카메라·오디오 입력·사용자 선택 파일·네트워크; 샌드박스 Mac 앱은 카메라 엔타이틀먼트 없이는 AVCapture 불가) | ✅ 1차 — Xcode 타깃 이름은 `MyApp`(자동 생성), 제품/표시 이름 Chosang/초상. 10/3 저녁 사용자가 `Desktop/Chosang` 으로 이동하고 프로젝트·타깃·폴더를 `Chosang` 으로 변경(INFOPLIST_FILE 경로 수정). macOS 샌드박스 카메라·오디오 입력·네트워크(빌드 설정) |
 | T-002 | 로컬 Swift Package `ChosangKit`(타깃: Core·Fit·Texture·Rig·Capture·IO·Validate, 테스트 타깃), 앱이 의존 | ✅ 1차 — + `chosang-validate` 실행 타깃. 함정: Xcode 가 프로젝트를 다시 저장하면 외부에서 넣은 패키지 참조가 지워진다(pbxproj 재적용 필요) |
 | T-003 | Info.plist: 카메라(ARKit 얼굴 데이터 사용 고지)·로컬 네트워크·Bonjour `_chosang._tcp`, UTI `com.coulson.chosang.persona`/`.chosangcapture`, 문서 타입 | ✅ 1차 (+ 마이크 고지) |
 | T-004 | 🔬 `Entity(named:)` 로 로드한 USDZ 의 `MeshResource.contents` 에서 `blendShapeOffsets(named:)` 52개·스킨 가중치·조인트가 읽히는지(소반 `DemoAvatar_Ethan.usdz` 로 즉시 확인). 안 되면 `bust.mesh` 경로 확정 | ✅ 1차 — 결과는 `Docs/Spikes.md` T-004. 결정: USDZ 를 1차 경로로 쓰되 `bust.mesh` 를 **항상 함께** 내보내 검증기가 교차 확인 |
@@ -35,7 +35,7 @@
 | T-202 | `CaptureGuide` 5컷 상태 기계(정면 중립·좌·우·위·미소), 중립도·각도·조도 게이트, 0.7 s 유지 자동 촬영, 건너뛰기, 재촬영 | ⏳ |
 | T-203 | 캡처 UI: 카메라 미리보기 + 얼굴 메시 와이어 오버레이(ARKit 정점) + 각도 링 + 조도 배너, 한국어 안내 음성(선택) | ⏳ |
 | T-204 | `CaptureBundle` 저장/로드, `.chosangcapture` zip, 썸네일 | ⏳ |
-| T-205 | 폴백 캡처(TrueDepth 없음·Mac): AVCapture + Vision 76점, 번들에 `sparse = true` | ⏳ |
+| T-205 | 폴백 캡처(TrueDepth 없음·Mac): AVCapture + Vision 76점, 번들에 `sparse = true` | ✅ 3차 (10/3 밤) — `ChosangCapture/PhotoCaptureSession`(AVCapture 1080p BGRA → `DetectFaceLandmarksRequest(.revision3)` 76점 + yaw/pitch/roll, 8프레임 평균, 겹침 방지 플래그) + `ChosangCore/SparseFaceGeometry`(핵심점 좌/우는 이미지 x 로, yaw 부호는 코끝 치우침으로, pitch 는 Vision 부호 반전, 가정 FOV 60° intrinsics, 눈 간격·IPD 63 mm 로 깊이) + 앱 `PhotoCaptureView`(macOS 캡처 탭 · iOS 는 `FaceCaptureSession.isSupported == false` 면 자동 폴백 · 사진 파일 불러오기). `CaptureShotMeta` 에 `landmarks2D`·`keyPoints2D`·`faceBox`·`poseEstimate`·`intrinsicsEstimated`(옵셔널, 옛 번들 호환). `FaceFitter` 는 sparse 번들을 `FitError.sparseBundle` 로 거부. **Mac 실기기 확인**: FaceTime HD 1920×1080, 76점 추적, 5컷 촬영·번들 저장, 왼쪽 30° 게이트 통과(yaw +30.9°) → `Docs/screenshots/m2-macos-photo-capture.png`. 테스트 5개(`SparseCaptureTests`). 🧪 남은 것: iPhone 폴백 경로(시뮬레이터는 카메라 없음 → 파일 불러오기만), pitch 부호는 Mac 관측 1회(아래로 볼 때 −)라 iPhone 에서 재확인 |
 | T-206 | 실기기: 5컷 자동 촬영 완주 3회, 번들 크기·시간, 안경/마스크 착용 시 중립도 게이트 동작 | ⏳ 🧪 |
 | T-207 | 실기기 번들 3세트 수집 → `Fixtures/capture-{a,b,c}.chosangcapture`(사용자 동의, 저장소에는 넣지 않고 로컬 보관 경로 문서화) | ⏳ 🧪 |
 
@@ -114,6 +114,7 @@
 ## 실기기 체크리스트 (M0 — 🧪 지금 바로 확인 가능)
 0. iPhone(TrueDepth): 캡처 탭 → 세션 시작 → "T-007 프로브" 에 정점 1220 · 삼각형 수 · 해시 · 깊이 640×480 DepthFloat32 · intrinsics · 조명 방향 표시 → 값을 `Docs/Spikes.md` T-007 과 `ARKitFaceTopology.referenceTriangleHash` 에 기록. 5컷 촬영 → 번들 저장 → 크기·시간.
 0b. Vision Pro / iPhone 실기기: 미리보기 탭 "변형 경로" 가 `LowLevelDeformation (GPU)` 인지, 클립 `laugh` 재생 중 변형 ms·fps.
+0c. ✅ Mac 실기기(T-205): 캡처 탭 → 카메라 권한 허용 → 76점 추적·5컷·번들 저장 확인(10/3 밤, MacBook Air FaceTime HD). 🧪 iPhone 16 실기기: 캡처 탭 화면(T-007 프로브 값 포함)을 `Docs/screenshots/m2-iphone16-truedepth-capture.png` 로 저장 → README 표 빈 칸. 🧪 iPhone 에서 pitch 부호(턱 들면 + 여야 함)·`videoFieldOfView` 로 `intrinsicsEstimated = false` 가 되는지.
 
 ## 실기기 체크리스트 (v1)
 1. iPhone: 초상 캡처 → 5컷 자동 촬영 → 빌드 60 s 이내 → 미리보기에서 턴테이블·클립 `bow`·라이브 표정(내 얼굴 따라 움직임).

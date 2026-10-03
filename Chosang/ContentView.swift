@@ -33,8 +33,10 @@ struct RootView: View {
         case .capture:
             #if os(iOS)
             CaptureView()
+            #elseif os(macOS)
+            PhotoCaptureView()   // T-205 사진 폴백 (Mac 카메라 · 사진 파일, sparse)
             #else
-            placeholder("캡처는 iPhone 에서")
+            placeholder("캡처는 iPhone·Mac 에서")
             #endif
         case .validate:
             #if os(macOS)

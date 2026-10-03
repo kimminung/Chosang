@@ -93,7 +93,7 @@
 | 세션 | `ARSession` + `ARFaceTrackingConfiguration`(`isLightEstimationEnabled`, `maximumNumberOfTrackedFaces` 1). 전면 TrueDepth. `ARFrame.capturedImage` + `capturedDepthData` + `camera.intrinsics` + `camera.transform` |
 | 가이드 | 5컷: 정면 중립 → 좌 30° → 우 30° → 위 15° → 정면 미소. 각 컷은 **표정 중립도**(52 가중치 합 < 0.6, 미소 컷 제외)·yaw/pitch 허용 범위·조도(lightEstimate ambientIntensity 300–1500 lm) 가 0.7초 유지되면 자동 촬영. 각 컷에서 **연속 8프레임**의 `faceAnchor.geometry.vertices` 를 평균(지터 제거) |
 | 번들 | `CaptureBundle`: shots[5] { jpeg(4032 긴 변, EXIF 업라이트), depth(Float32, 640×480, 카메라 좌표), intrinsics(3×3, 이미지 해상도 기준), cameraTransform, faceTransform, faceVertices[1220], blendShapes[52], lightEstimate(ambient, 색온도, 방향 추정 `ARDirectionalLightEstimate` 는 Face 구성에서 제공) } + `meta.json`. 폴더 `Documents/Captures/<uuid>/`. 전송·테스트용 `.chosangcapture`(zip) |
-| 폴백 | TrueDepth 없는 기기·Mac: Vision 76점 + 사진만 → `template.json` 랜드마크 대응으로 희소 피팅(품질 "기본" 표시) |
+| 폴백 | TrueDepth 없는 기기·Mac·사진 파일: `PhotoCaptureSession`(AVCapture + Vision 76점 revision 3 + 자세) → 같은 `CaptureBundle`(`sparse = true`, 깊이·1220 정점 없음, `landmarks2D`·`keyPoints2D`·`faceBox`·`poseEstimate`·`intrinsicsEstimated`) → `template.json` 랜드마크 대응으로 희소 피팅(M3 T-306, 품질 "기본" 표시). 기하 규약은 `SparseFaceGeometry`(§14) |
 
 ### 6.4 피팅 (`ChosangFit`)
 
@@ -257,3 +257,35 @@
 - 클립 뼈 값은 흉상 공간 피벗 기준 로컬 오프셋이며 Neck→Head→Eye 합성은 M5 스키닝에서 구현(지금은 Head 회전만 근사).
 
 **다음 (M2)**: Prompt.md §B M2 — iPhone 캡처 T-201~T-207. 그 전에 🧪 T-007 프로브로 ARKit 삼각형 해시 기록.
+
+## 14. 3차 — T-205 사진 폴백 캡처: Mac 카메라 · 사진 파일 · TrueDepth 없는 iPhone (2026-10-03 밤)
+
+**요청**: Mac 에서도 캡처가 되게, TrueDepth 없는 평면 이미지로도. README 의 iPhone 칸은 iPhone 16 실기기 TrueDepth 촬영 화면으로, Mac 칸은 Mac 실기기에서 사용자 본인을 캡처한 실행 화면으로.
+
+**결정**
+- 폴백도 **같은 번들 포맷**(`CaptureBundle`, `sparse = true`). `CaptureShotMeta` 에 옵셔널 5개만 더해 옛 `meta.json`·`Fixtures/*.chosangcapture` 는 그대로 읽힌다: `landmarks2D`(Vision 76 × 픽셀, 평평하게) · `keyPoints2D`(템플릿 `LandmarkName` 과 같은 이름 — 눈꼬리 4·코끝·입꼬리 2·턱) · `faceBox` · `poseEstimate`(yaw·pitch·roll, 도) · `intrinsicsEstimated`.
+- Vision 은 **`DetectFaceLandmarksRequest(.revision3)` 로 고정**해 76점 인덱스를 안정시킨다(revision 4 는 점 수가 다름 — `template.json` 의 Vision 76 대응 인덱스가 깨진다).
+- **좌/우는 Vision 의 `leftEye`/`rightEye` 명명에 기대지 않고 이미지 x 로 정한다**(비반전 이미지에서 피사체 왼쪽 = 이미지 오른쪽). yaw 부호는 코끝이 눈 중점보다 어느 쪽인가로 정하고 크기만 Vision 값을 쓴다. pitch 는 Vision 이 오른손 좌표계(y 위·z 보는 사람 쪽)라 + 가 턱 내림 → 반전. roll 그대로.
+- intrinsics: Mac 은 `AVCaptureDevice.Format.videoFieldOfView` 가 **macOS 에 없다**(`API_UNAVAILABLE(macos, visionos)`) → 수평 FOV 60° 가정, `intrinsicsEstimated = true`. iOS 폴백은 센서 FOV.
+- 얼굴 변환: 깊이 z = f·IPD(63 mm)·cos(yaw)/눈간격(px), R = Ry(yaw)·Rx(−pitch)·Rz(roll), 원점 = 눈 중점 − R·(0, 0.03, 0.055). 정면 1920 px 에서 눈 간격 120 px → 0.87 m(테스트). 실측 캡처는 0.65 m.
+- 저장 이미지는 **비반전**(ARKit 경로와 동일), 미리보기만 거울(`scaleEffect(x: −1)` 을 영상·오버레이에만 — 배지·안내 문구는 제외).
+- 밀집 `FaceFitter` 는 sparse 번들을 `FitError.sparseBundle`(한국어 사유)로 거부. 희소 피팅은 T-306.
+- 엔타이틀먼트 파일 신설 `Chosang/Chosang.entitlements`(샌드박스·카메라·오디오 입력·사용자 선택 파일 읽기·네트워크). 샌드박스 Mac 앱은 카메라 엔타이틀먼트 없이는 세션이 열리지 않는다. 카메라 고지 문구를 Mac·Vision 경로까지 포함하도록 갱신.
+
+**실기기 확인(Mac, MacBook Air FaceTime HD 1920×1080)**: 권한 허용 → 76점 추적, 핵심점이 눈꼬리·코끝·입꼬리·턱에 놓임, 5컷 촬영·번들 저장(`~/Library/Containers/com.coulson.Chosang/Data/Documents/Captures/<uuid>/`), 왼쪽 30° 로 돌리자 yaw +30.9° 로 "유지하세요" → `Docs/screenshots/m2-macos-photo-capture.png`. Vision 원값도 yaw +30.9°(= 우리 규약과 같은 부호), 화면을 내려다볼 때 Vision pitch +11.3° → 우리 −11.3°(아래) 로 관측 1회.
+
+**빌드**: macOS · iOS 시뮬레이터(generic) · visionOS 시뮬레이터 통과, `swift test` 23/23(희소 캡처 5 추가). visionOS 기기 빌드는 이번에 돌리지 않음(캡처 코드는 `#if os(macOS) || os(iOS)`).
+
+**함정**
+- **Xcode 가 반복해서 튕겨** 파일 쓰기·엔타이틀먼트 추가 MCP 호출이 중간에 끊겼다(엔타이틀먼트 파일은 직접 작성, pbxproj 에 `CODE_SIGN_ENTITLEMENTS` 직접 기입). 이후 빌드·실행은 전부 `xcodebuild`·`open` 으로.
+- **macOS 앱을 `open … --args tab=capture` 로 띄우면 창이 안 뜬다**: 대시 없는 인자를 AppKit 이 "열 문서" 로 넘기고(이 앱은 문서 타입을 선언), SwiftUI 는 문서 열기 실행에서 기본 창을 만들지 않는다. → `LaunchOptions` 가 환경변수 `CHOSANG_ARGS` 도 읽는다. Xcode 스킴 인자는 그대로 동작.
+- `/tmp` 아래 DerivedData 의 샌드박스 앱은 `sandbox_extension_issue_file_to_process` 가 실패한다 → DerivedData 는 홈 아래로.
+- 샌드박스 앱 컨테이너(`~/Library/Containers/...`)는 TCC 라 터미널에서 번들을 못 읽는다(2차 함정과 동일). 저장은 화면 메시지로 확인.
+- SwiftUI `Canvas`/`Image` 에 건 `scaleEffect` 는 `overlay` 로 얹은 배지에는 적용되지 않는다 — 배지를 또 뒤집으면 거꾸로 된다.
+
+**가정**
+- IPD 63 mm·눈 중점 오프셋(0, 0.03, 0.055)·Mac FOV 60° 는 상수. 희소 피팅(T-306)에서 템플릿 눈 간격으로 치환하면 깊이 척도 가정이 사라진다.
+- 조명은 얼굴 상자 평균 밝기를 0…2000 lm 으로 환산한 UI 참고값(탈조명 입력 아님).
+
+**다음**: iPhone 16 실기기 캡처 화면(README 빈 칸)·T-007 해시, 그리고 M2 T-201~T-204(ARKit 가이드 상태 기계·UI). T-306 희소 피팅은 `keyPoints2D` ↔ `template.json` 랜드마크 + 3D TPS.
+
