@@ -13,7 +13,7 @@
 | T-004 | 🔬 `Entity(named:)` 로 로드한 USDZ 의 `MeshResource.contents` 에서 `blendShapeOffsets(named:)` 52개·스킨 가중치·조인트가 읽히는지(소반 `DemoAvatar_Ethan.usdz` 로 즉시 확인). 안 되면 `bust.mesh` 경로 확정 | ✅ 1차 — 결과는 `Docs/Spikes.md` T-004. 결정: USDZ 를 1차 경로로 쓰되 `bust.mesh` 를 **항상 함께** 내보내 검증기가 교차 확인 |
 | T-005 | 🔬 macOS ModelIO `MDLAsset.canExportFileExtension("usdz"/"usdc")` 와 실제 내보내기(메시+텍스처). 안 되면 자체 USDA+zip 설계 | ✅ 1차 — usdz ✗ · usdc/usda ✓ → **usdc + 자체 ZipArchive(64 B 정렬)** 로 usdz. `ChosangIO/USDExport`, `ZipArchive` |
 | T-006 | 🔬 `LowLevelMesh` + `LowLevelDeformation`(blending 52 · skinning 5 · renormalizing) 를 소반 흉상에 적용해 시뮬레이터·Mac 에서 60 fps 확인. 뼈 클립을 `AnimationGraphResource` 로 돌릴지 자체 샘플러로 돌릴지 결정 | ✅ 1차 — **시뮬레이터 SDK 에 `LowLevelDeformation` 없음**(GaussianSplat 과 같은 패턴) → 기기·Mac 은 GPU, 시뮬레이터는 CPU 폴백. 뼈 클립 = 자체 `ClipPlayer`. 수치는 `Docs/Spikes.md` |
-| T-007 | 🔬 iPhone: `ARFaceTrackingConfiguration` 에서 `capturedDepthData`·`intrinsics`·`faceAnchor.geometry.vertices`·`lightEstimate` 를 한 프레임에서 동시에 얻어 저장. 정점 수 1220·삼각형 해시 기록. Apple 샘플 `ARFaceGeometry.obj` 와 정점 순서 일치 확인 | 🧪 코드·절차 준비됨 — `ChosangCapture/FaceCaptureSession`(`ARFaceProbeReport`) + 앱 캡처 탭. 실기기 절차는 `Docs/Spikes.md` T-007 |
+| T-007 | 🔬 iPhone: `ARFaceTrackingConfiguration` 에서 `capturedDepthData`·`intrinsics`·`faceAnchor.geometry.vertices`·`lightEstimate` 를 한 프레임에서 동시에 얻어 저장. 정점 수 1220·삼각형 해시 기록. Apple 샘플 `ARFaceGeometry.obj` 와 정점 순서 일치 확인 | ✅ 7차 실기기 (iPhone 16 / iOS 27.0.1) — 정점 **1220** · 삼각형 **2304** · 해시 **`67161fe4685cdd1e`**(→ `ARKitFaceTopology.referenceTriangleHash`) · 이미지 1440×1080(저장 1080×1440) · fx 966 fy 966 cx 715 cy 535 · 깊이 640×480 DepthFloat32(**프레임마다 오지 않음**) · ambient 978 lm 5933 K **방향 추정 없음** · 셰이프 52. 결정: M4 탈조명은 조명 방향 없이, 깊이는 최근 프레임 캐시로 보충 |
 | T-008 | 소반에서 이식: `ArkitBlendShapes.swift`(52 이름·가중치·비셈 프리셋·어댑터), `HangulViseme`, `ThinPlateSpline`(폴백용), `AppearanceHints`(FoundationModels + 휴리스틱). 소반 리포는 **수정하지 않는다** | ✅ 1차 — Core(ArkitBlendShapes·HangulViseme·TPS) · Fit(AppearanceHints, 7개 분류로 확장) · Capture(MicLevelMeter) · Rig(FaceRig). 소반 리포 미수정 |
 | T-009 | Fixtures: 소반 USDZ 흉상을 임시 템플릿으로, 합성 캡처 번들 1세트(템플릿 자체를 가상 카메라 5대로 렌더한 RGB·깊이·정점) → 파이프라인 끝까지 통과하는 "셀프 피팅" 테스트 | ✅ 1차 — 소반 USDZ 에는 셰이프·패치가 없어 **절차적 합성 템플릿**(`SyntheticTemplate`, 1220 패치 + 52 델타)으로 대체. `Fixtures/synthetic-{template,perturbed}.chosangcapture`, 셀프 피팅 RMS 0.011 mm, 섭동 피팅 패치 0.0005 mm·두상 중앙값 1.9 mm, CPU 텍스처 PSNR 24 dB(기준선 22) — `SelfFitTests` |
 | T-010 | README · Docs(이 PRD·Tasks·Blender 계약 복사) · LICENSE(Apache-2.0) · .gitignore · `git init -b main` | ✅ 1차 (+ CLAUDE.md, NOTICE, Docs/Spikes.md, tools/blender/export_chosang.py) |
@@ -31,12 +31,12 @@
 ## M2 · 캡처 (iPhone)
 | ID | 작업 | 상태 |
 |---|---|---|
-| T-201 | `FaceCaptureSession`: ARSession 수명, 프레임 → `CaptureFrame`(RGB·깊이·intrinsics·transform·정점·가중치·조명), 60 Hz 중 8프레임 평균 | ⏳ |
-| T-202 | `CaptureGuide` 5컷 상태 기계(정면 중립·좌·우·위·미소), 중립도·각도·조도 게이트, 0.7 s 유지 자동 촬영, 건너뛰기, 재촬영 | ⏳ |
-| T-203 | 캡처 UI: 카메라 미리보기 + 얼굴 메시 와이어 오버레이(ARKit 정점) + 각도 링 + 조도 배너, 한국어 안내 음성(선택) | ⏳ |
-| T-204 | `CaptureBundle` 저장/로드, `.chosangcapture` zip, 썸네일 | ⏳ |
+| T-201 | `FaceCaptureSession`: ARSession 수명, 프레임 → `CaptureFrame`(RGB·깊이·intrinsics·transform·정점·가중치·조명), 60 Hz 중 8프레임 평균 | ✅ 5차 — M0 에 만든 세션에 미리보기(백그라운드 델리게이트 큐, 절반 해상도 포트레이트 CGImage)·정점 투영·조도 경고를 더하고 프로브는 첫 프레임 1회로. **포트레이트 회전 버그 수정**(아래 T-203). iPhone 16 실기기 동작 |
+| T-202 | `CaptureGuide` 5컷 상태 기계(정면 중립·좌·우·위·미소), 중립도·각도·조도 게이트, 0.7 s 유지 자동 촬영, 건너뛰기, 재촬영 | ✅ 5차 — `ChosangCapture/CaptureGuide`(순수 로직: 현재 스텝·유지 타이머·건너뛰기·재촬영·완료, 테스트 3개). 게이트는 소스(`passesGate`). **iPhone 16 실기기에서 5컷 자동 촬영 확인**(0.7 s·허용각 그대로 쓸 만함) |
+| T-203 | 캡처 UI: 카메라 미리보기 + 얼굴 메시 와이어 오버레이(ARKit 정점) + 각도 링 + 조도 배너, 한국어 안내 음성(선택) | ✅ 8차 — iPhone `GuidedCaptureView`: 전체 화면 카메라 · 정점 오버레이 · 단계 칩(촬영분 썸네일) · 각도 링 · 조도 배너 · 셔터/건너뛰기/ⓘ 진단 · 햅틱 · 한국어 음성(`SpeechGuide`, 기본 꺼짐). **거울 미리보기 기본 꺼짐**(안내의 좌/우와 화면이 반대라 헷갈린다는 사용자 피드백). 실기기 수정 3건: ① 투영 회전(§16) ② **자세는 `portraitCameraTransform` 기준** — 런타임 `camera.transform` 은 가로라 그대로 쓰면 좌우 회전이 pitch 로 샌다(실측 yaw −0.8°/pitch −33.8°). 저장 메타는 이미 회전된 값이라 재사용 시 더 돌리지 않는다(§18·§19) ③ 게이트 완화(±9°/±8°, 중립도 1.2, 시선 8 + 깜빡임 2 제외) + 진단에 중립도 기여 상위 3개. 테스트 8개(`FacePoseTests`) ④ **yaw 부호 반전**(`FacePoseConvention`) — raw yaw 는 자기 오른쪽 회전이 +라 규약(+ = 내 왼쪽)과 반대였다. 저장값은 그대로 두고 가이드 각도만 뒤집는다(§20). 테스트 11개 |
+| T-204 | `CaptureBundle` 저장/로드, `.chosangcapture` zip, 썸네일 | ✅ 5차 — 저장 시 **썸네일**(긴 변 256 JPEG, `meta.thumbFile`) 자동 생성, `read(loadImages: false)` 면 썸네일만 읽는다, `CaptureBundleStore.list()` 로 폴더 목록(최신순), 앱에서 `ShareLink` 로 `.chosangcapture` 내보내기(iPhone·Mac). 테스트 1개(생성·메타·압축 왕복·목록) |
 | T-205 | 폴백 캡처(TrueDepth 없음·Mac): AVCapture + Vision 76점, 번들에 `sparse = true` | ✅ 3차 (10/3 밤) — `ChosangCapture/PhotoCaptureSession`(AVCapture 1080p BGRA → `DetectFaceLandmarksRequest(.revision3)` 76점 + yaw/pitch/roll, 8프레임 평균, 겹침 방지 플래그) + `ChosangCore/SparseFaceGeometry`(핵심점 좌/우는 이미지 x 로, yaw 부호는 코끝 치우침으로, pitch 는 Vision 부호 반전, 가정 FOV 60° intrinsics, 눈 간격·IPD 63 mm 로 깊이) + 앱 `PhotoCaptureView`(macOS 캡처 탭 · iOS 는 `FaceCaptureSession.isSupported == false` 면 자동 폴백 · 사진 파일 불러오기). `CaptureShotMeta` 에 `landmarks2D`·`keyPoints2D`·`faceBox`·`poseEstimate`·`intrinsicsEstimated`(옵셔널, 옛 번들 호환). `FaceFitter` 는 sparse 번들을 `FitError.sparseBundle` 로 거부. **Mac 실기기 확인**: FaceTime HD 1920×1080, 76점 추적, 5컷 촬영·번들 저장, 왼쪽 30° 게이트 통과(yaw +30.9°) → `Docs/screenshots/m2-macos-photo-capture.png`. 테스트 5개(`SparseCaptureTests`). 🧪 남은 것: iPhone 폴백 경로(시뮬레이터는 카메라 없음 → 파일 불러오기만), pitch 부호는 Mac 관측 1회(아래로 볼 때 −)라 iPhone 에서 재확인 |
-| T-206 | 실기기: 5컷 자동 촬영 완주 3회, 번들 크기·시간, 안경/마스크 착용 시 중립도 게이트 동작 | ⏳ 🧪 |
+| T-206 | 실기기: 5컷 자동 촬영 완주 3회, 번들 크기·시간, 안경/마스크 착용 시 중립도 게이트 동작 | 🔄 🧪 — iPhone 16(전면 TrueDepth): 5컷 완주·저장·내보내기 ✅, 번들 1컷당 JPEG 약 0.4 MB + 깊이 1.2 MB. 1차 임계값에서는 좌·우·위 자동 촬영이 안 걸렸고(수치 근거 TechPRD §18) 깊이가 5컷 중 1컷만 담겼다 → 둘 다 고쳐 재설치. 남은 것: 완주 3회·안경/마스크·깊이 5/5 확인 |
 | T-207 | 실기기 번들 3세트 수집 → `Fixtures/capture-{a,b,c}.chosangcapture`(사용자 동의, 저장소에는 넣지 않고 로컬 보관 경로 문서화) | ⏳ 🧪 |
 
 ## M3 · 피팅
@@ -81,13 +81,13 @@
 | ID | 작업 | 상태 |
 |---|---|---|
 | T-601 | `.chosang` 쓰기/읽기(manifest schema 1, identity.bin, albedo, mask, thumb), 템플릿 id·버전 검사, 캡처 번들 동봉 옵션 | ⏳ |
-| T-602 | `PersonaLibrary`: `Documents/Personas/<uuid>/`, 활성, 이름 변경, 삭제, 재빌드(번들 있으면) | ⏳ |
-| T-603 | 전송: Network.framework `NWListener/NWBrowser/NWConnection`, Bonjour `_chosang._tcp`, TLS PSK 6자리, 청크·진행률·재개 | ⏳ |
+| T-602 | `PersonaLibrary`: `Documents/Personas/<uuid>/`, 활성, 이름 변경, 삭제, 재빌드(번들 있으면) | 🔄 6차 1차 — `ReceivedStore`(`Documents/Received/`, 이름 충돌 회피, 목록) + 받은 목록 UI + 받은 `.chosang` 을 미리보기에 적용(`AppModel.loadPersona`, 템플릿 id·정점 수 검사). 이름 변경·삭제·재빌드는 남음 |
+| T-603 | 전송: Network.framework `NWListener/NWBrowser/NWConnection`, Bonjour `_chosang._tcp`, TLS PSK 6자리, 청크·진행률·재개 | ✅ 6차 — `ChosangIO/ChosangTransfer`: `TransferFraming`(4바이트 BE 길이 + 헤더 JSON + 본문, 상한·검증), `ChosangReceiver`(광고·코드·진행률·저장), `ChosangSender`(검색·64 KB 청크·진행률), TLS PSK(`sec_protocol_options_add_pre_shared_key` + `TLS_PSK_WITH_AES_128_GCM_SHA256`), `includePeerToPeer`. 앱 "주고받기" 탭(`TransferView`) 전 플랫폼. **Mac 루프백 실측**: 광고 → 발견 → 300 KB 전송 1.1 s, 틀린 코드는 거부(테스트 2개). 재개(이어받기)는 미구현 |
 | T-604 | 문서 열기: `fileImporter`·`onOpenURL`·AirDrop `.chosang`/`.chosangcapture` | ⏳ |
 | T-605 | `.sobanpersona` 내보내기 어댑터(정면 렌더 → body.png, 리그 좌표, `chosangRef`) | ⏳ |
 | T-606 | USDZ 내보내기(macOS, T-005 결과대로), 3DGS PLY 는 v2 | ⏳ |
 | T-607 | `ChosangSobanAdapter` 패키지: `ChosangBustAvatar: TableAvatar`(소반 프로토콜 복제본 기준), 소반 쪽 통합은 **별도 PR 로 소반 리포에서** | ⏳ |
-| T-608 | 실기기: iPhone → Vision Pro 전송(12 MB) 시간, 코드 입력, 수신 후 로드 | ⏳ 🧪 |
+| T-608 | 실기기: iPhone → Vision Pro 전송(12 MB) 시간, 코드 입력, 수신 후 로드 | ⏳ 🧪 — 코드·화면은 준비됨(Mac 루프백 통과). Vision Pro 실기기에서 "주고받기 → 받기 → 수신 대기" 후 iPhone 에서 캡처 번들 보내기로 확인 |
 
 ## M7 · 검수 화면 · 품질
 | ID | 작업 | 상태 |
@@ -114,6 +114,10 @@
 ## 실기기 체크리스트 (M0 — 🧪 지금 바로 확인 가능)
 0. iPhone(TrueDepth): 캡처 탭 → 세션 시작 → "T-007 프로브" 에 정점 1220 · 삼각형 수 · 해시 · 깊이 640×480 DepthFloat32 · intrinsics · 조명 방향 표시 → 값을 `Docs/Spikes.md` T-007 과 `ARKitFaceTopology.referenceTriangleHash` 에 기록. 5컷 촬영 → 번들 저장 → 크기·시간.
 0b. Vision Pro / iPhone 실기기: 미리보기 탭 "변형 경로" 가 `LowLevelDeformation (GPU)` 인지, 클립 `laugh` 재생 중 변형 ms·fps.
+0d. ✅ iPhone 16(10/3 밤): 캡처 탭 가이드 화면 동작 — 게이트 통과 시 "유지하세요"·링 차오름·자동 촬영, 정면 완료 후 왼쪽 30° 안내로 전환(`Docs/screenshots/m2-iphone16-*.png`). 발견: 정점 오버레이가 턱 아래로 어긋남 → 포트레이트 회전 수정(T-203).
+0e. 🧪 iPhone 16 재확인(회전 수정 후): 정점 오버레이가 얼굴에 붙는지, ⓘ 진단의 T-007 프로브 값(삼각형 해시·깊이 해상도·조명)을 `Docs/Spikes.md` T-007 과 `ARKitFaceTopology.referenceTriangleHash` 에 기록, 5컷 저장 번들 크기·시간.
+0f. 🧪 Vision Pro 실기기(예정): ① 미리보기 "변형 경로" 가 `LowLevelDeformation (GPU)` 인지, 클립 `laugh` 재생 중 변형 ms·fps, 2D 창에서 흉상이 유리 앞에 보이는지. ② **주고받기 → 받기 → 수신 대기 시작** → 코드 6자리 표시 → iPhone 보내기 로 캡처 번들 수신(로컬 네트워크 권한 허용 필요) → 받은 목록. 첫 실행에서 "받기" 탭은 이제 플레이스홀더가 아니다.
+0g. 🔄 🧪 iPhone 16(전면 TrueDepth, **9차 빌드 설치됨**): ① 좌·우·위 세 컷이 **자동으로** 찍히는지(왼쪽으로 돌리면 왼쪽 컷이 반응해야 한다), ② 5컷 모두 깊이가 담기는지, ③ 각도 링의 점이 고개 방향과 같은 축으로 움직이는지(거울 기본 꺼짐). 막히면 ⓘ 진단의 **중립도 기여 상위 3개**와 yaw/pitch 를 본다. 콘솔: `xcrun devicectl device process launch --device <UDID> --console --terminate-existing com.coulson.Chosang tab=capture` — 촬영마다 `자동/수동`·목표 대비 각도·중립도·깊이가 찍힌다.
 0c. ✅ Mac 실기기(T-205): 캡처 탭 → 카메라 권한 허용 → 76점 추적·5컷·번들 저장 확인(10/3 밤, MacBook Air FaceTime HD). 🧪 iPhone 16 실기기: 캡처 탭 화면(T-007 프로브 값 포함)을 `Docs/screenshots/m2-iphone16-truedepth-capture.png` 로 저장 → README 표 빈 칸. 🧪 iPhone 에서 pitch 부호(턱 들면 + 여야 함)·`videoFieldOfView` 로 `intrinsicsEstimated = false` 가 되는지.
 
 ## 실기기 체크리스트 (v1)

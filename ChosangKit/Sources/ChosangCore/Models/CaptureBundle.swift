@@ -117,6 +117,8 @@ public struct CaptureShotMeta: Codable, Sendable, Equatable {
     public var kind: ShotKind
     public var imageFile: String
     public var depthFile: String?
+    /// 썸네일 파일 (긴 변 `CaptureBundleStore.thumbnailMaxDimension`, JPEG). 옛 번들에는 없다.
+    public var thumbFile: String?
     public var imageWidth: Int
     public var imageHeight: Int
     public var depthWidth: Int?
@@ -202,7 +204,11 @@ public struct CaptureShot: Sendable {
     public var meta: CaptureShotMeta
     public var image: RGBAImage?
     public var depth: DepthMap?
-    public init(meta: CaptureShotMeta, image: RGBAImage?, depth: DepthMap?) { self.meta = meta; self.image = image; self.depth = depth }
+    /// 목록·확인용 작은 이미지 (저장 시 `CaptureBundleStore` 가 만들고, 읽을 때 되살린다).
+    public var thumbnail: RGBAImage?
+    public init(meta: CaptureShotMeta, image: RGBAImage?, depth: DepthMap?, thumbnail: RGBAImage? = nil) {
+        self.meta = meta; self.image = image; self.depth = depth; self.thumbnail = thumbnail
+    }
 
     public var kind: ShotKind { meta.kind }
     public var cameraTransform: simd_float4x4 { meta.cameraTransform.m }

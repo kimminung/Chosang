@@ -44,6 +44,10 @@ public enum ArkitShape: String, CaseIterable, Codable, Sendable {
     public var isMouthRegion: Bool { rawValue.hasPrefix("mouth") || rawValue.hasPrefix("jaw") || self == .tongueOut || self == .cheekPuff }
     /// 눈 영역 셰이프.
     public var isEyeRegion: Bool { rawValue.hasPrefix("eye") }
+    /// 시선 셰이프 8개(`eyeLookIn/Out/Up/Down` × 좌우) — 표정이 아니라 **눈동자 방향**이라 중립도에서 뺀다.
+    public var isGaze: Bool { rawValue.hasPrefix("eyeLook") }
+    /// 눈 깜빡임 2개 — 순간적이라 중립도에서 뺀다.
+    public var isBlink: Bool { self == .eyeBlinkLeft || self == .eyeBlinkRight }
     /// 눈썹 영역 셰이프.
     public var isBrowRegion: Bool { rawValue.hasPrefix("brow") }
     /// 왼쪽/오른쪽 짝 (대칭 검사·미러용). 없으면 자기 자신.
@@ -107,8 +111,27 @@ public struct ArkitWeights: Hashable, Sendable, Codable {
         return out
     }
 
-    /// 가중치 합 (캡처 가이드의 "표정 중립도" 게이트에 쓴다: 합 < 0.6 이면 중립).
+    /// 가중치 합.
     public var sum: Float { values.reduce(0, +) }
+
+    /// 캡처 가이드의 "표정 중립도". **시선 8개(`eyeLook*`)와 눈 깜빡임 2개(`eyeBlink*`)는 뺀다** —
+    /// 좌·우·위 컷은 고개를 돌린 채 카메라를 보므로 눈이 반대로 돌아가 `eyeLookIn/Out/Up/Down` 이 1.0 까지 올라가고,
+    /// 깜빡임은 순간적이라 "표정을 풀었는가" 와 무관하다. 둘을 넣으면 세 각도 컷이 영영 게이트를 통과하지 못한다(T-203 실기기).
+    public var neutrality: Float {
+        var s: Float = 0
+        for shape in ArkitShape.allCases where !shape.isGaze && !shape.isBlink { s += self[shape] }
+        return s
+    }
+
+    /// 중립도에 가장 크게 기여하는 셰이프 (진단용).
+    public func topContributors(_ n: Int = 3) -> [(ArkitShape, Float)] {
+        ArkitShape.allCases
+            .filter { !$0.isGaze && !$0.isBlink && self[$0] > 0.05 }
+            .map { ($0, self[$0]) }
+            .sorted { $0.1 > $1.1 }
+            .prefix(n)
+            .map { $0 }
+    }
     public var isEmpty: Bool { !values.contains { $0 > 0.0005 } }
 }
 

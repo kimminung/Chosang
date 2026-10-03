@@ -26,8 +26,11 @@ public enum ARKitFaceTopology {
     /// 같은 삼각형 목록의 FNV-1a 64 (UInt32 LE) — `patchTriangleHash(indices:patchCount:)` 와 비교.
     public static let patchTrianglesABCACDFNV: UInt64 = 0xbf36df8487c55844
 
-    /// 실기기에서 측정한 ARKit `triangleIndices`(Int16) 의 FNV-1a 64. 🧪 T-007 전까지는 nil.
-    public static let referenceTriangleHash: UInt64? = nil
+    /// 실기기에서 측정한 ARKit `triangleIndices`(Int16) 의 FNV-1a 64 — **iPhone 16 / iOS 27.0.1, 2026-10-03 측정**.
+    /// 캡처 번들 `meta.arkitTriangleHash` 가 이 값과 다르면 OS 가 토폴로지를 바꿨다는 뜻이라 희소 피팅으로 폴백한다(§10 위험 표).
+    public static let referenceTriangleHash: UInt64? = 0x67161fe4685cdd1e
+    /// 위 해시의 16진 문자열 (번들 메타에 저장되는 형식).
+    public static let referenceTriangleHashHex = "67161fe4685cdd1e"
 
     /// 패치 삼각형(세 정점이 모두 `patchCount` 미만)만 추려 UInt32 로 정규화한 뒤 FNV-1a 64.
     public static func patchTriangleHash(indices: [UInt32], patchCount: Int) -> UInt64 {

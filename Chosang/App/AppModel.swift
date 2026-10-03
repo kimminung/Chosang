@@ -11,6 +11,9 @@ import RealityKit
 import ChosangCore
 import ChosangRig
 import ChosangIO
+#if os(iOS) || os(visionOS)
+import UIKit
+#endif
 
 enum TemplateSource: String, CaseIterable, Identifiable {
     case defaultTemplate = "기본 템플릿 (블렌더)"
@@ -29,7 +32,7 @@ enum TemplateSource: String, CaseIterable, Identifiable {
 }
 
 enum AppTab: String, CaseIterable, Identifiable {
-    case preview = "미리보기", capture = "캡처", validate = "검증", spikes = "스파이크", receive = "받기"
+    case preview = "미리보기", capture = "캡처", validate = "검증", spikes = "스파이크", receive = "주고받기"
     var id: String { rawValue }
     var systemImage: String {
         switch self {
@@ -44,9 +47,9 @@ enum AppTab: String, CaseIterable, Identifiable {
         #if os(visionOS)
         [.preview, .receive, .spikes]
         #elseif os(iOS)
-        [.preview, .capture, .spikes]
+        [.preview, .capture, .receive, .spikes]
         #else
-        [.preview, .capture, .validate, .spikes]
+        [.preview, .capture, .receive, .validate, .spikes]
         #endif
     }
 }
@@ -120,6 +123,41 @@ final class AppModel {
     }
 
     func log(_ s: String) { spikeLog.append(s); print("[초상] \(s)") }
+
+    /// 전송 화면에 띄울 이 기기 이름 (Bonjour 서비스 이름으로도 쓴다).
+    static var localDeviceName: String {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.name
+        #else
+        Host.current().localizedName ?? "Mac"
+        #endif
+    }
+
+    /// 받은 `.chosang` 을 현재 템플릿 위에 올린다 (M6 T-603 수신 → 미리보기).
+    /// 템플릿 id·버전이 다르면 경고만 하고 형상은 적용하지 않는다 — 정점 수·순서가 달라 섞으면 깨진다.
+    @discardableResult
+    func loadPersona(from url: URL) async -> String? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("persona-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        do {
+            try ChosangPackageStore.unarchive(url, to: tmp)
+            let pkg = try ChosangPackageStore.read(from: tmp, expectedTemplate: template.manifest)
+            guard pkg.identity.positions.count == template.vertexCount else {
+                loadError = "페르소나 정점 수(\(pkg.identity.positions.count))가 현재 템플릿(\(template.vertexCount))과 다릅니다"
+                return loadError
+            }
+            identity = pkg.identity
+            loadError = nil
+            let msg = "페르소나 적용: \(url.lastPathComponent) · 템플릿 \(pkg.manifest.templateID)@\(pkg.manifest.templateVersion) · 정점 \(pkg.identity.positions.count)"
+            log(msg)
+            return msg
+        } catch {
+            loadError = "페르소나 로드 실패: \(error.localizedDescription)"
+            return loadError
+        }
+    }
 
     /// 템플릿 소스 전환.
     func switchTemplate(to source: TemplateSource) async {

@@ -53,9 +53,9 @@ struct SpikesView: View {
                 spike("T-007", "iPhone ARFaceTracking 한 프레임: 깊이·내부 파라미터·1220 정점·조명", key: "t007") {
                     #if os(iOS)
                     if FaceCaptureSession.isSupported {
-                        return "지원 기기입니다. 캡처 탭에서 세션을 시작하면 첫 프레임 프로브가 기록됩니다. 🧪 실기기에서 확인."
+                        return "지원 기기입니다. 캡처 탭 → 시작 → ⓘ 진단 시트에 첫 프레임 프로브(정점 1220·삼각형 해시·깊이·intrinsics·조명)가 기록됩니다. 🧪 실기기에서 확인."
                     } else {
-                        return "이 기기/시뮬레이터는 ARFaceTracking 을 지원하지 않습니다. 🧪 iPhone 실기기(TrueDepth)에서 캡처 탭 → 세션 시작."
+                        return "이 기기/시뮬레이터는 ARFaceTracking 을 지원하지 않습니다(캡처 탭은 사진 폴백으로 뜹니다). 🧪 iPhone 실기기(TrueDepth)에서 캡처 탭 → 시작 → ⓘ 진단."
                     }
                     #else
                     return "iPhone 전용. 🧪 실기기 절차: 캡처 탭 → 세션 시작 → 프로브 보고(정점 1220·삼각형 해시·깊이 640×480 Float32·intrinsics·조명 방향) 를 Docs/Spikes.md 에 기록."

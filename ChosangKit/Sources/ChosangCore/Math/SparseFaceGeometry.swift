@@ -94,12 +94,9 @@ public enum SparseFaceGeometry {
         return m
     }
 
-    /// 변환에서 yaw/pitch(도) 를 다시 읽는다 (FaceCaptureSession 과 같은 식: 얼굴 +Z 의 카메라 좌표 방향).
+    /// 변환에서 yaw/pitch(도) 를 다시 읽는다 (ARKit 경로와 같은 식 — `Geometry.faceYawPitch`).
     public static func yawPitch(of faceInCamera: simd_float4x4) -> (yaw: Float, pitch: Float) {
-        let fwd = faceInCamera.columns.2
-        let yaw = atan2(fwd.x, fwd.z) * 180 / .pi
-        let pitch = atan2(fwd.y, (fwd.x * fwd.x + fwd.z * fwd.z).squareRoot()) * 180 / .pi
-        return (yaw, pitch)
+        Geometry.faceYawPitch(faceInCamera: faceInCamera)
     }
 
     static func centroid(_ p: [SIMD2<Float>]) -> SIMD2<Float> { p.reduce(.zero, +) / Float(max(1, p.count)) }

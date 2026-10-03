@@ -1,12 +1,12 @@
 //
 //  PhotoCaptureView.swift
-//  초상 (macOS · iOS 폴백)
+//  초상 (macOS)
 //
-//  T-205 희소 캡처 화면: Mac 내장 카메라(또는 TrueDepth 없는 iPhone·시뮬레이터) 미리보기 + Vision 76점 오버레이 + 5컷 게이트 + 사진 파일 불러오기 → 번들 저장(sparse = true).
-//  저장 이미지는 비반전, 미리보기만 거울처럼 보여 준다.
+//  T-205 희소 캡처 화면(데스크톱 레이아웃): Mac 내장 카메라 미리보기 + Vision 76점 오버레이 + 5컷 게이트 + 사진 파일 불러오기 → 번들 저장(sparse = true).
+//  저장 이미지는 비반전, 미리보기만 거울처럼 보여 준다. iPhone 은 같은 세션을 `GuidedCaptureView` 로 쓴다.
 //
 
-#if os(macOS) || os(iOS)
+#if os(macOS)
 import SwiftUI
 import simd
 import UniformTypeIdentifiers
@@ -23,9 +23,10 @@ struct PhotoCaptureView: View {
     @State private var importing = false
     @State private var importKind: ShotKind = .front
     @State private var mirror = true
+    @State private var savedFolder: URL?
+    @State private var exportURL: URL?
 
     var body: some View {
-        #if os(macOS)
         HStack(spacing: 0) {
             preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.9))
             Divider()
@@ -33,17 +34,6 @@ struct PhotoCaptureView: View {
         }
         .onAppear(perform: autoStart)
         .onDisappear { session.stop() }
-        #else
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                preview.frame(height: 360).background(Color.black.opacity(0.9)).clipShape(RoundedRectangle(cornerRadius: 12))
-                panel
-            }
-            .padding()
-        }
-        .onAppear(perform: autoStart)
-        .onDisappear { session.stop() }
-        #endif
     }
 
     /// 실행 인자 `camera=1` 이면 자동 시작 (스크린샷 자동화).
@@ -120,6 +110,9 @@ struct PhotoCaptureView: View {
                 Toggle("거울", isOn: $mirror).toggleStyle(.switch).font(.caption)
             }
             if let e = session.errorText { Text(e).font(.caption).foregroundStyle(.red) }
+            if let w = session.lightWarning {
+                Label(w, systemImage: "sun.max.trianglebadge.exclamationmark").font(.caption).foregroundStyle(.orange)
+            }
             GroupBox("가정값") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(String(format: "수평 FOV %.0f° (%@) · 동공 거리 %.0f mm", session.assumedHorizontalFOV, session.fovIsMeasured ? "센서" : "가정", SparseFaceGeometry.assumedInterpupillary * 1000))
@@ -144,7 +137,12 @@ struct PhotoCaptureView: View {
                     }
                     HStack {
                         Button("번들 저장 (Documents/Captures)") { save() }.disabled(shots.isEmpty)
-                        Button("비우기") { shots.removeAll(); message = "" }.disabled(shots.isEmpty)
+                        if let url = exportURL {
+                            ShareLink(item: url) { Text("내보내기…") }
+                        } else {
+                            Button("내보내기 (.chosangcapture)") { export() }.disabled(savedFolder == nil)
+                        }
+                        Button("비우기") { shots.removeAll(); savedFolder = nil; exportURL = nil; message = "" }.disabled(shots.isEmpty)
                     }
                     Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
@@ -180,8 +178,20 @@ struct PhotoCaptureView: View {
         let meta = CaptureBundleMeta(device: PhotoCaptureSession.deviceDescription, sparse: true, arkitTriangleHash: nil, arkitVertexCount: 0, shots: shots.map(\.meta))
         let bundle = CaptureBundle(meta: meta, shots: shots)
         let folder = CaptureBundleStore.defaultFolder(for: meta.id)
-        do { try CaptureBundleStore.write(bundle, to: folder); message = "저장: \(folder.path)" }
+        do { try CaptureBundleStore.write(bundle, to: folder); savedFolder = folder; exportURL = nil; message = "저장: \(folder.path)" }
         catch { message = "저장 실패: \(error.localizedDescription)" }
+    }
+
+    /// 저장된 폴더 → `.chosangcapture`(zip) 임시 파일 → 공유 (T-204).
+    private func export() {
+        guard let folder = savedFolder else { return }
+        do {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(folder.lastPathComponent).\(CaptureBundleStore.fileExtension)")
+            try? FileManager.default.removeItem(at: url)
+            try ZipArchive.zipFolder(folder).write(to: url)
+            exportURL = url
+            message = "내보내기 준비됨: \(url.lastPathComponent) — '내보내기…' 로 공유하세요"
+        } catch { message = "내보내기 실패: \(error.localizedDescription)" }
     }
 }
 #endif

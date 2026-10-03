@@ -57,10 +57,12 @@ public struct FaceFrameStatus: Sendable, Equatable {
 
 /// 캡처 게이트 임계값 (M2 에서 DEBUG 패널로 노출).
 public struct CaptureGate: Sendable, Equatable {
-    public var neutralitySumMax: Float = 0.6
-    public var yawTolerance: Float = 6
-    public var pitchTolerance: Float = 5
-    public var lumensRange: ClosedRange<Float> = 300...1500
+    /// 중립도 상한. 시선·깜빡임을 뺀 합 — `ArkitWeights.neutrality`. 고개를 돌리면 ARKit 이 볼·턱을 조금씩 올려 1 근처까지 간다(실측).
+    public var neutralitySumMax: Float = 1.2
+    /// 각도 허용치(도). 손으로 들고 맞추는 동작이라 1차의 ±6/±5 는 너무 좁았다(T-203 실기기) → ±9/±8.
+    public var yawTolerance: Float = 9
+    public var pitchTolerance: Float = 8
+    public var lumensRange: ClosedRange<Float> = 250...2000
     public var holdSeconds: Double = 0.7
     public var framesToAverage = 8
     public init() {}
@@ -70,18 +72,35 @@ public struct CaptureGate: Sendable, Equatable {
 @Observable
 public final class FaceCaptureSession: NSObject, ARSessionDelegate {
     public private(set) var status = FaceFrameStatus()
+    /// 중립도에 가장 크게 기여하는 셰이프 (진단 시트에 표시 — 게이트가 막힐 때 원인을 바로 본다)
+    public private(set) var topShapes: [(ArkitShape, Float)] = []
     public private(set) var probe: ARFaceProbeReport?
     public private(set) var errorText: String?
     public private(set) var isRunning = false
     public var gate = CaptureGate()
+    /// 카메라 미리보기 (포트레이트 업라이트, 비반전, 절반 해상도). 뷰가 거울로 뒤집어 보여 준다.
+    public private(set) var preview: CGImage?
+    /// 미리보기 픽셀 좌표의 ARKit 얼굴 정점(8개 중 1개 서브샘플) — 와이어 오버레이용 (T-203)
+    public private(set) var previewPoints: [SIMD2<Float>] = []
 
     private let session = ARSession()
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
+    /// ARKit 델리게이트 큐 — 미리보기 CGImage 변환을 메인에서 하지 않기 위해
+    private let delegateQueue = DispatchQueue(label: "chosang.face-capture", qos: .userInteractive)
+    private let probeOnce = BusyFlag()
+    private let previewBusy = BusyFlag()
     /// 평균용 링 버퍼 (최근 N 프레임의 정점·가중치)
     private var recentVertices: [[SIMD3<Float>]] = []
     private var recentWeights: [ArkitWeights] = []
     private var latestFrame: ARFrame?
     private var latestAnchor: ARFaceAnchor?
+    /// 마지막으로 깊이 프레임을 본 시각. TrueDepth 깊이는 색 프레임과 주기가 달라 자주 nil 이라 "한동안 없음" 일 때만 경고한다.
+    private var lastDepthSeen = Date.distantPast
+    /// 최근 깊이 맵 (세로 회전 완료). 촬영 순간 프레임에 깊이가 없으면 이걸 쓴다.
+    private var recentDepth: (map: DepthMap, at: Date)?
+    /// 미리보기 축소 배율 (1920×1080 → 960×540 포트레이트 540×960)
+    private static let previewScale: CGFloat = 0.5
+    private static let previewVertexStride = 8
 
     public static var isSupported: Bool { ARFaceTrackingConfiguration.isSupported }
 
@@ -93,6 +112,7 @@ public final class FaceCaptureSession: NSObject, ARSessionDelegate {
         config.isLightEstimationEnabled = true
         config.maximumNumberOfTrackedFaces = 1
         session.delegate = self
+        session.delegateQueue = delegateQueue
         session.run(config, options: [.resetTracking, .removeExistingAnchors])
         isRunning = true
         errorText = nil
@@ -103,39 +123,95 @@ public final class FaceCaptureSession: NSObject, ARSessionDelegate {
         isRunning = false
         recentVertices.removeAll(); recentWeights.removeAll()
         latestFrame = nil; latestAnchor = nil
+        previewPoints = []
     }
 
     // MARK: ARSessionDelegate
 
     nonisolated public func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        guard let anchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first else {
-            Task { @MainActor in self.status.isTracked = false }
+        let anchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first
+        // 미리보기: 겹치지 않게(플래그) 포트레이트·절반 해상도 CGImage + 투영 정점. 얼굴이 없어도 영상은 보여 준다.
+        var previewImage: CGImage? = nil
+        var points: [SIMD2<Float>] = []
+        if previewBusy.tryAcquire() {
+            let ci = CIImage(cvPixelBuffer: frame.capturedImage).oriented(.right).transformed(by: CGAffineTransform(scaleX: Self.previewScale, y: Self.previewScale))
+            previewImage = ciContext.createCGImage(ci, from: ci.extent)
+            if let anchor, let img = previewImage {
+                let K = Self.portraitIntrinsics(frame: frame).scaled(toWidth: img.width, height: img.height)
+                let camInv = Self.portraitCameraTransform(frame: frame).inverse
+                let toCam = camInv * anchor.transform
+                let verts = anchor.geometry.vertices
+                points.reserveCapacity(verts.count / Self.previewVertexStride + 1)
+                var i = 0
+                while i < verts.count {
+                    if let p = K.project(Geometry.transformPoint(toCam, verts[i])) { points.append(p) }
+                    i += Self.previewVertexStride
+                }
+            }
+            previewBusy.release()
+        }
+        guard let anchor else {
+            Task { @MainActor in
+                self.status.isTracked = false
+                if let previewImage { self.preview = previewImage; self.previewPoints = [] }
+            }
             return
         }
         let verts = anchor.geometry.vertices
         let weights = ArkitWeights(named: Dictionary(uniqueKeysWithValues: anchor.blendShapes.map { ($0.key.rawValue, $0.value.floatValue) }))
-        // 얼굴 자세: 카메라 기준 yaw/pitch
-        let camToWorld = frame.camera.transform
-        let faceInCam = camToWorld.inverse * anchor.transform
-        let fwd = faceInCam.columns.2   // 얼굴 +Z (카메라 좌표)
-        let yaw = atan2(fwd.x, fwd.z) * 180 / .pi
-        let pitch = atan2(fwd.y, (fwd.x * fwd.x + fwd.z * fwd.z).squareRoot()) * 180 / .pi
+        // 얼굴 자세: **세로(포트레이트) 카메라 기준**.
+        // `ARCamera.transform` 의 x 축은 기기 긴 축(전면 카메라 → 홈버튼)이라 세로로 들면 월드 아래를 향한다
+        // (실측 (0, −0.999, −0.05), 문서와 일치). 그대로 쓰면 좌우 회전이 pitch 로 새어 나간다(실측 yaw −0.8° / pitch −33.8°).
+        // 저장 메타의 `cameraTransform` 은 이미 이 회전이 적용된 값이므로, 번들을 다시 읽을 때는 **더 돌리지 않는다**.
+        // 부호 규약(+yaw = 내 왼쪽)은 `FacePoseConvention` 이 맞춘다 — 실측에서 raw yaw 가 반대로 나온다.
+        let faceInCam = Self.portraitCameraTransform(frame: frame).inverse * anchor.transform
+        let (yaw, pitch) = FacePoseConvention.guideAngles(faceInPortraitCamera: faceInCam)
         let ambient = Float(frame.lightEstimate?.ambientIntensity ?? 0)
         let hasDepth = frame.capturedDepthData != nil
-        let needProbe = self.probeNeeded
-        let report: ARFaceProbeReport? = needProbe ? Self.makeProbe(frame: frame, anchor: anchor) : nil
+        // 깊이가 온 프레임에서만 변환해 캐시해 둔다(촬영 순간에는 대개 없다)
+        let depthNow = hasDepth ? Self.convertDepth(frame.capturedDepthData) : nil
+        // T-007 프로브는 첫 프레임 한 번만 (삼각형 해시 계산을 매 프레임 하지 않는다)
+        let report: ARFaceProbeReport? = probeOnce.tryAcquire() ? Self.makeProbe(frame: frame, anchor: anchor) : nil
         Task { @MainActor in
             self.latestFrame = frame
             self.latestAnchor = anchor
             self.recentVertices.append(verts)
             self.recentWeights.append(weights)
             if self.recentVertices.count > self.gate.framesToAverage { self.recentVertices.removeFirst(); self.recentWeights.removeFirst() }
-            self.status = FaceFrameStatus(isTracked: anchor.isTracked, yaw: yaw, pitch: pitch, neutrality: weights.sum, ambientLumens: ambient, hasDepth: hasDepth)
+            if hasDepth { self.lastDepthSeen = Date() }
+            if let depthNow { self.recentDepth = (depthNow, Date()) }
+            self.status = FaceFrameStatus(isTracked: anchor.isTracked, yaw: yaw, pitch: pitch, neutrality: weights.neutrality, ambientLumens: ambient, hasDepth: hasDepth)
+            self.topShapes = weights.topContributors()
+            if let previewImage { self.preview = previewImage; self.previewPoints = points }
             if let report, self.probe == nil { self.probe = report }
         }
     }
 
-    nonisolated private var probeNeeded: Bool { true }
+    /// `AVDepthData` → 세로 회전된 `DepthMap`(Float32, m). 없으면 nil.
+    nonisolated static func convertDepth(_ data: AVDepthData?) -> DepthMap? {
+        guard let d = data else { return nil }
+        let conv = d.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+        let pb = conv.depthDataMap
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        let dw = CVPixelBufferGetWidth(pb), dh = CVPixelBufferGetHeight(pb), stride = CVPixelBufferGetBytesPerRow(pb) / 4
+        guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: Float.self) else { return nil }
+        // 가로 깊이 → 세로로 회전 (x' = dh−1−y, y' = x) — 저장 이미지·intrinsics 와 같은 방향
+        var vals = [Float](repeating: 0, count: dw * dh)
+        for y in 0..<dh { for x in 0..<dw { vals[x * dh + (dh - 1 - y)] = base[y * stride + x] } }
+        return DepthMap(width: dh, height: dw, values: vals)
+    }
+
+    /// 가로 센서 → 세로(포트레이트) 저장 방향의 intrinsics. 규약·함정은 `Geometry.portraitRotated` 참고.
+    nonisolated static func portraitIntrinsics(frame: ARFrame) -> Geometry.Intrinsics {
+        let res = frame.camera.imageResolution
+        return Geometry.portraitRotated(Geometry.Intrinsics(matrix: frame.camera.intrinsics, width: Int(res.width), height: Int(res.height)))
+    }
+
+    /// 같은 회전을 적용한 카메라 변환. intrinsics 와 **같은 방향**이어야 한다(T-203 실기기에서 어긋남을 확인).
+    nonisolated static func portraitCameraTransform(frame: ARFrame) -> simd_float4x4 {
+        frame.camera.transform * Geometry.portraitCameraRotation
+    }
 
     nonisolated static func makeProbe(frame: ARFrame, anchor: ARFaceAnchor) -> ARFaceProbeReport {
         let geo = anchor.geometry
@@ -186,28 +262,14 @@ public final class FaceCaptureSession: NSObject, ARSessionDelegate {
             }
             if ok { image = RGBAImage(width: width, height: height, bytes: buf) }
         }
-        // 가로 → 세로 회전에 맞춘 intrinsics: (x', y') = (H_land − y, x) → fx'=fy, fy'=fx, cx'=H−cy, cy'=cx
-        let res = frame.camera.imageResolution
-        let K = frame.camera.intrinsics
-        let intr = Geometry.Intrinsics(fx: K.columns.1.y, fy: K.columns.0.x, cx: Float(res.height) - K.columns.2.y, cy: K.columns.2.x, width: width, height: height)
-        // 카메라 변환도 같은 회전(카메라 좌표계를 Z 축 기준 −90° 회전)
-        let rot = simd_float4x4(simd_quatf(angle: -.pi / 2, axis: [0, 0, 1]))
-        let camT = frame.camera.transform * rot
+        // 가로 → 세로 회전에 맞춘 intrinsics · 카메라 변환 (미리보기 투영과 같은 식)
+        let intr = Self.portraitIntrinsics(frame: frame).scaled(toWidth: width, height: height)
+        let camT = Self.portraitCameraTransform(frame: frame)
 
-        var depth: DepthMap? = nil
-        if let d = frame.capturedDepthData {
-            let conv = d.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-            let pb = conv.depthDataMap
-            CVPixelBufferLockBaseAddress(pb, .readOnly)
-            let dw = CVPixelBufferGetWidth(pb), dh = CVPixelBufferGetHeight(pb), stride = CVPixelBufferGetBytesPerRow(pb) / 4
-            if let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: Float.self) {
-                // 가로 깊이 → 세로로 회전 (x' = dh−1−y, y' = x)
-                var vals = [Float](repeating: 0, count: dw * dh)
-                for y in 0..<dh { for x in 0..<dw { vals[x * dh + (dh - 1 - y)] = base[y * stride + x] } }
-                depth = DepthMap(width: dh, height: dw, values: vals)
-            }
-            CVPixelBufferUnlockBaseAddress(pb, .readOnly)
-        }
+        // 깊이: 이 프레임에 있으면 그것, 없으면 **최근 캐시**(0.6 s 이내).
+        // TrueDepth 깊이는 색 프레임과 주기가 달라 대부분의 프레임에 없다 — 1차 실기기 번들은 5컷 중 1컷만 깊이가 담겼다.
+        var depth: DepthMap? = Self.convertDepth(frame.capturedDepthData)
+        if depth == nil, let cached = recentDepth, Date().timeIntervalSince(cached.at) < 0.6 { depth = cached.map }
         let le = frame.lightEstimate
         let dir = le as? ARDirectionalLightEstimate
         let light = LightEstimate(ambientIntensity: Float(le?.ambientIntensity ?? 1000), ambientColorTemperature: Float(le?.ambientColorTemperature ?? 6500),
@@ -218,6 +280,17 @@ public final class FaceCaptureSession: NSObject, ARSessionDelegate {
                                    intrinsics: intr, cameraTransform: camT, faceTransform: anchor.transform,
                                    faceVertices: avg, blendShapes: w, light: light, averagedFrames: n, timestamp: frame.timestamp)
         return CaptureShot(meta: meta, image: image, depth: depth)
+    }
+
+    /// 조도 경고 문장 (T-203 배너). 문제없으면 nil.
+    public var lightWarning: String? {
+        guard status.isTracked else { return nil }
+        let lm = status.ambientLumens
+        if lm < gate.lumensRange.lowerBound { return String(format: "너무 어둡습니다 (%.0f lm) — 밝은 곳으로", lm) }
+        if lm > gate.lumensRange.upperBound { return String(format: "너무 밝습니다 (%.0f lm) — 역광을 피하세요", lm) }
+        // 깊이는 색 프레임보다 느리게 와서 대부분의 프레임이 nil 이다 — 2초 넘게 없을 때만 경고
+        if Date().timeIntervalSince(lastDepthSeen) > 2 { return "깊이 프레임이 2초 넘게 없습니다 — 얼굴을 30–60 cm 거리에" }
+        return nil
     }
 
     /// 지금 프레임이 게이트를 통과하는가.

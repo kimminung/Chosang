@@ -67,7 +67,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ChosangKitTests",
-            dependencies: ["ChosangCore", "ChosangFit", "ChosangTexture", "ChosangIO", "ChosangValidate"],
+            dependencies: ["ChosangCore", "ChosangFit", "ChosangTexture", "ChosangIO", "ChosangValidate", "ChosangCapture"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

@@ -119,4 +119,46 @@ struct SparseCaptureTests {
             #expect(e.errorDescription?.contains("희소") == true)
         }
     }
+
+    @Test("T-204 썸네일: 저장 시 자동 생성 · 메타에 기록 · 이미지 없이도 읽힌다 · 폴더 목록")
+    func thumbnailsAndListing() throws {
+        let K = SparseFaceGeometry.intrinsics(horizontalFOVDegrees: 60, width: 640, height: 480)
+        var img = RGBAImage(width: 640, height: 480, fill: SIMD4(10, 20, 30, 255))
+        for y in 0..<240 { for x in 0..<320 { img[x, y] = SIMD4(240, 30, 20, 255) } }   // 왼쪽 위만 붉게
+        let meta = CaptureShotMeta(kind: .front, imageFile: "shot-front.jpg", depthFile: nil, imageWidth: 640, imageHeight: 480, depthWidth: nil, depthHeight: nil,
+                                   intrinsics: K, cameraTransform: matrix_identity_float4x4, faceTransform: matrix_identity_float4x4,
+                                   faceVertices: [], blendShapes: ArkitWeights(), light: LightEstimate(), averagedFrames: 1, timestamp: 1,
+                                   landmarks2D: [SIMD2(1, 2)], keyPoints2D: [:], faceBox: .zero, poseEstimate: .zero, intrinsicsEstimated: true)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("caps-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleMeta = CaptureBundleMeta(device: "test", sparse: true, arkitTriangleHash: nil, arkitVertexCount: 0, shots: [meta])
+        let folder = root.appendingPathComponent(bundleMeta.id.uuidString)
+        try CaptureBundleStore.write(CaptureBundle(meta: bundleMeta, shots: [CaptureShot(meta: meta, image: img, depth: nil)]), to: folder)
+
+        // 썸네일 파일이 생기고 메타가 가리킨다
+        let saved = try CaptureBundleStore.read(from: folder)
+        let m = try #require(saved.shots.first?.meta)
+        #expect(m.thumbFile == "thumb-front.jpg")
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("thumb-front.jpg").path))
+        let thumb = try #require(saved.shots.first?.thumbnail)
+        #expect(max(thumb.width, thumb.height) == CaptureBundleStore.thumbnailMaxDimension)
+        #expect(thumb.width == 256 && thumb.height == 192)
+        // 축소해도 왼쪽 위는 붉고 오른쪽 아래는 어둡다 (JPEG 손실 허용)
+        #expect(thumb[20, 20].x > 180 && thumb[20, 20].y < 90)
+        #expect(thumb[230, 170].x < 90)
+
+        // 원본 없이 썸네일만 읽기 (목록 화면)
+        let light = try CaptureBundleStore.read(from: folder, loadImages: false)
+        #expect(light.shots[0].image == nil && light.shots[0].thumbnail != nil)
+
+        // 폴더 목록 (최신순)
+        let list = CaptureBundleStore.list(in: root)
+        #expect(list.count == 1 && list[0].id == bundleMeta.id && list[0].sparse)
+
+        // `.chosangcapture` 왕복에도 썸네일이 실린다
+        let zip = root.appendingPathComponent("x.chosangcapture")
+        try CaptureBundleStore.archive(CaptureBundle(meta: bundleMeta, shots: [CaptureShot(meta: meta, image: img, depth: nil)]), to: zip)
+        let back = try CaptureBundleStore.readArchive(zip)
+        #expect(back.shots[0].thumbnail?.width == 256 && back.shots[0].meta.thumbFile == "thumb-front.jpg")
+    }
 }

@@ -45,7 +45,7 @@ struct RootView: View {
             placeholder("검증은 Mac 에서")
             #endif
         case .receive:
-            placeholder("받기 — M6 (Network.framework, Bonjour _chosang._tcp)")
+            TransferView()   // M6 T-603: Bonjour _chosang._tcp + TLS PSK 6자리
         }
     }
 
@@ -54,13 +54,24 @@ struct RootView: View {
     }
 }
 
-/// 미리보기 화면: 3D 흉상 + 오른쪽 패널(템플릿·클립·셰이프 슬라이더·성능).
+/// 미리보기 화면: 3D 흉상 + 오른쪽 패널(템플릿·클립·셰이프 슬라이더·성능). iPhone(가로 공간 compact)은 전체 화면 3D + 하단 글래스 바 + 시트.
 struct PreviewScreen: View {
     @Environment(AppModel.self) private var model
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
 
     var body: some View {
+        #if os(iOS)
+        if sizeClass == .compact { PhonePreviewScreen() } else { panelLayout }
+        #else
+        panelLayout
+        #endif
+    }
+
+    private var panelLayout: some View {
         @Bindable var model = model
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             TemplatePreviewView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // visionOS: 2D 창의 RealityView 는 콘텐츠를 창 평면 뒤에 그린다 → 불투명 배경이 흉상을 가린다(1차 "잘림"의 실제 원인)
@@ -115,6 +126,124 @@ struct PreviewScreen: View {
         }
     }
 }
+
+#if os(iOS)
+/// iPhone 미리보기: 3D 가 화면 전체. 하단 글래스 바 = 템플릿 메뉴 · 턴테이블 · 표정(시트) · 정보(시트), 그 위에 클립 칩 가로 스크롤.
+struct PhonePreviewScreen: View {
+    @Environment(AppModel.self) private var model
+    @State private var showShapes = false
+    @State private var showInfo = false
+
+    var body: some View {
+        @Bindable var model = model
+        ZStack(alignment: .bottom) {
+            TemplatePreviewView()
+                .background(Color.black)
+                .ignoresSafeArea()
+                .overlay(alignment: .top) {
+                    if model.sheetMode {
+                        Text("\(model.sheetIndex + 1)/52  \(ArkitShape.allCases[model.sheetIndex].rawValue)")
+                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                            .padding(8).glassEffect().padding(.top, 8)
+                    } else if let e = model.loadError {
+                        Text(e).font(.caption).foregroundStyle(.red).padding(8).glassEffect().padding()
+                    }
+                }
+            if !model.sheetMode {
+                VStack(spacing: 10) {
+                    clipChips
+                    GlassEffectContainer(spacing: 12) {
+                        HStack(spacing: 12) {
+                            Menu {
+                                Picker("템플릿", selection: Binding(get: { model.templateSource }, set: { src in Task { await model.switchTemplate(to: src) } })) {
+                                    ForEach(TemplateSource.allCases) { Text($0.rawValue).tag($0) }
+                                }
+                                if model.templateSource == .synthetic {
+                                    Button("템플릿 그대로") { model.applyFixture(perturbed: false) }
+                                    Button("섭동 사용자(1.05·코·턱)") { model.applyFixture(perturbed: true) }
+                                }
+                            } label: {
+                                Label(shortTemplateName, systemImage: "cube").labelStyle(.titleAndIcon).lineLimit(1)
+                            }
+                            .buttonStyle(.glass)
+                            Button { model.turntable.toggle() } label: { Image(systemName: model.turntable ? "rotate.3d.fill" : "rotate.3d") }
+                                .buttonStyle(.glass).accessibilityLabel("턴테이블")
+                            Button { showShapes = true } label: { Label("표정", systemImage: "slider.horizontal.3") }
+                                .buttonStyle(.glassProminent)
+                            Button { showInfo = true } label: { Image(systemName: "info.circle") }
+                                .buttonStyle(.glass).accessibilityLabel("정보")
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+        }
+        .sheet(isPresented: $showShapes) {
+            NavigationStack {
+                ScrollView { VStack(spacing: 14) { ClipPanel(); ShapeSlidersView() }.padding() }
+                    .navigationTitle("표정 · 클립")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { showShapes = false } } }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        }
+        .sheet(isPresented: $showInfo) {
+            NavigationStack {
+                List {
+                    Section("템플릿") {
+                        Text(model.templateStatus).font(.caption)
+                        Text("정점 \(model.vertexCount) (렌더 \(model.renderVertexCount))")
+                        Text(model.deformationPath).font(.caption.monospaced())
+                    }
+                    Section("성능") {
+                        Text(String(format: "변형 %.2f ms · 프레임 %.1f ms (%.0f fps)", model.updateMilliseconds, model.frameMilliseconds, model.fps)).font(.caption.monospacedDigit())
+                    }
+                    Section("보기") {
+                        Toggle("턴테이블", isOn: $model.turntable)
+                        Toggle("프리비즈 카메라 (0,0.41,1.29 · hFOV 39.6°)", isOn: $model.previzCamera)
+                        Toggle("셰이프 시트 (52 순환)", isOn: $model.sheetMode)
+                        Toggle("1회 클립 반복", isOn: $model.clipLoop)
+                    }
+                }
+                .navigationTitle("정보")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { showInfo = false } } }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var shortTemplateName: String {
+        switch model.templateSource {
+        case .defaultTemplate: "기본 템플릿"
+        case .synthetic: "합성"
+        case .legacyBust: "소반 흉상"
+        case .legacyEthan: "소반 데모"
+        }
+    }
+
+    /// 클립 칩: 가로 스크롤, 선택은 토글.
+    private var clipChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    ForEach(SampledClip.contract.map(\.name), id: \.self) { n in
+                        let on = model.selectedClip == n
+                        Button(n) { model.selectedClip = on ? nil : n }
+                            .font(.caption.weight(on ? .semibold : .regular))
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .foregroundStyle(on ? Color.accentColor : .primary)
+                            .glassEffect(on ? .regular.tint(.accentColor.opacity(0.2)).interactive() : .regular.interactive())
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+    }
+}
+#endif
 
 #Preview {
     RootView().environment(AppModel(launch: LaunchOptions()))

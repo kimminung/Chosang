@@ -53,6 +53,37 @@ public enum Geometry {
         }
     }
 
+    // MARK: 가로 센서 → 세로(포트레이트) 저장 방향
+    //
+    // iPhone 전면 카메라는 **가로 센서 버퍼**(W×H, 예 1440×1080)를 준다. 저장·표시는 세로 업라이트라서
+    // `CIImage.oriented(.right)`(EXIF 6, 시계방향 90°)로 돌린다. 그 픽셀 매핑은
+    //     (x', y') = (H − y, x)          — 연속 좌표, H = 가로 이미지의 높이
+    // 이고, 같은 회전을 **intrinsics 와 카메라 변환 양쪽에** 일관되게 적용해야 재투영이 맞는다.
+    // 함정(T-203 실기기): intrinsics 는 시계방향인데 카메라를 반시계로 돌리면 투영점이 주점 기준
+    // 점대칭으로 뒤집힌다(화면에서 얼굴 위 → 점은 아래). 그래서 둘을 여기 한 쌍으로 둔다.
+
+    /// 가로 intrinsics → 세로(시계방향 90°) intrinsics. `fx'=fy, fy'=fx, cx'=H−cy, cy'=cx`, 크기도 뒤바뀐다.
+    public static func portraitRotated(_ K: Intrinsics) -> Intrinsics {
+        Intrinsics(fx: K.fy, fy: K.fx, cx: Float(K.height) - K.cy, cy: K.cx, width: K.height, height: K.width)
+    }
+
+    /// 같은 회전을 카메라에 적용하는 행렬. `portraitCameraTransform = camera.transform * portraitCameraRotation`.
+    public static let portraitCameraRotation = simd_float4x4(simd_quatf(angle: .pi / 2, axis: [0, 0, 1]))
+
+    /// 얼굴 앵커 → **카메라 좌표** 변환에서 자세 각도(도).
+    /// yaw + = 피사체가 자기 왼쪽으로 고개를 돌림, pitch + = 턱을 듦. 얼굴 +Z(정면)를 카메라 축에 투영해 잰다.
+    ///
+    /// **세로로 든 기기**에서는 `camera.transform * portraitCameraRotation` 의 역행렬로 얼굴을 옮긴 뒤 부른다.
+    /// `ARCamera.transform` 의 x 축은 기기 긴 축(전면 카메라 → 홈버튼)이라 세로에서는 월드 아래를 향하고,
+    /// 그대로 쓰면 좌우 회전이 pitch 로 새어 나간다(iPhone 16 실측: 왼쪽 30° 자세가 yaw −0.8° / pitch −33.8° 로 읽혔다).
+    /// 캡처 번들의 `cameraTransform` 은 **이미 회전이 적용된 값**이므로 다시 읽을 때는 그대로 넘긴다.
+    public static func faceYawPitch(faceInCamera m: simd_float4x4) -> (yaw: Float, pitch: Float) {
+        let fwd = m.columns.2
+        let yaw = atan2(fwd.x, fwd.z) * 180 / .pi
+        let pitch = atan2(fwd.y, (fwd.x * fwd.x + fwd.z * fwd.z).squareRoot()) * 180 / .pi
+        return (yaw, pitch)
+    }
+
     /// 세로 FOV(라디안)·크기에서 intrinsics.
     public static func intrinsics(verticalFOV: Float, width: Int, height: Int) -> Intrinsics {
         let fy = Float(height) / 2 / tan(verticalFOV / 2)

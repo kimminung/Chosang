@@ -85,7 +85,24 @@ API 시그니처는 문서가 성겨서 `xcrun -sdk macosx swiftc -typecheck` �
 4. 5컷을 눌러 촬영 → "번들 저장" → Files 앱에서 `Documents/Captures/<uuid>/` 크기(목표 ≤ 40 MB)와 저장 시간을 적는다. 이 번들은 커밋하지 않는다.
 5. 결과를 이 절과 `Tasks.md` 실기기 체크리스트 0 번에 적는다.
 
-**알려진 미확정**: 저장 이미지 방향(센서 가로 → 포트레이트 회전)과 그에 맞춘 intrinsics 변환(`fx'=fy, fy'=fx, cx'=H−cy, cy'=cx`)·카메라 변환(Z 축 −90°)은 코드에 넣었지만 실기기에서 재투영 오차로 검증해야 한다(M2 T-206).
+**실기기 결과 ✅ (iPhone 16 / iOS 27.0.1, 2026-10-03 밤)** — `devicectl device process launch --console` 로 프로브를 그대로 받음.
+
+| 항목 | 측정값 |
+|---|---|
+| 정점 | **1220** (기대 1220) |
+| 삼각형 | **2304** (= `expectedTriangleCount`) |
+| 삼각형 인덱스 FNV-1a 64 | **`67161fe4685cdd1e`** → `ARKitFaceTopology.referenceTriangleHash` 에 기록 |
+| 색 이미지 | 1440×1080 (센서 가로) · 저장 1080×1440 |
+| intrinsics | fx 966 · fy 966 · cx 715 · cy 535 |
+| 깊이 | 640×480 DepthFloat32 → 저장 480×640 · **프레임마다 오지 않는다**(색 프레임보다 드물다) |
+| 조명 | ambient 978 lm · 5933 K · **방향 추정 없음**(`ARDirectionalLightEstimate` 아님) |
+| 블렌드셰이프 | 52 |
+
+→ 결정 두 개: ① M4 탈조명은 **조명 방향 없이** ambient·색온도만 쓴다. ② 깊이는 촬영 순간에 대개 없으므로 **최근 깊이 프레임을 캐시**해 붙인다(0.6 s 이내).
+
+**해결된 미확정 — 포트레이트 회전(투영)**: 저장 방향 회전을 intrinsics 는 시계방향(`cx'=H−cy, cy'=cx`), 카메라 변환은 반시계(`Rz(−90°)`)로 적용해 **서로 180° 어긋나 있었다**. 화면 오버레이에서 정점이 턱 아래로 밀리는 것으로 드러났고, 같은 변환이 번들 `cameraTransform` 에 들어가 텍스처 투영까지 틀어질 버그였다. `Geometry.portraitRotated` + `Geometry.portraitCameraRotation`(= `Rz(+90°)`) 한 쌍으로 고쳤고 **실기기에서 오버레이가 얼굴에 붙는 것을 확인**했다(TechPRD §16).
+
+**자세 계산에도 같은 회전이 필요하다**: 런타임 `camera.transform` 의 x 축은 기기 긴 축(전면 카메라 → 홈버튼)이라 세로로 들면 월드 아래를 향한다(실측 (0, −0.999, −0.05) — 문서와 일치). 그대로 쓰면 좌우 회전이 pitch 로 새어 나간다(실측 `yaw −0.8° / pitch −33.8°`). **단, 캡처 번들의 `cameraTransform` 은 이미 회전된 값**이라 다시 읽을 때는 더 돌리지 않는다. 이 구분을 놓쳐 진단이 한 번 뒤집혔다(TechPRD §18·§19).
 
 ## T-205 — Vision 얼굴 자세 부호 · Mac 카메라 (Mac 실기기 관측, 2026-10-03)
 

@@ -12,6 +12,8 @@ import ChosangCore
 public enum CaptureBundleStore {
     public static let metaName = "meta.json"
     public static let fileExtension = "chosangcapture"
+    /// 썸네일 긴 변 (T-204). 5컷 × 약 10 KB 이라 번들 크기에 영향이 없다.
+    public static let thumbnailMaxDimension = 256
 
     public static func write(_ bundle: CaptureBundle, to folder: URL, jpegQuality: Double = 0.92) throws {
         let fm = FileManager.default
@@ -23,6 +25,10 @@ public enum CaptureBundleStore {
             if let img = shot.image {
                 try ImageCodec.jpeg(img, quality: jpegQuality).write(to: folder.appendingPathComponent(m.imageFile))
                 m.imageWidth = img.width; m.imageHeight = img.height
+                let thumb = shot.thumbnail ?? ImageCodec.thumbnail(img, maxDimension: thumbnailMaxDimension)
+                let name = m.thumbFile ?? "thumb-\(m.kind.rawValue).jpg"
+                try ImageCodec.jpeg(thumb, quality: 0.8).write(to: folder.appendingPathComponent(name))
+                m.thumbFile = name
             }
             if let d = shot.depth {
                 let name = m.depthFile ?? "depth-\(meta.shots.count).f32"
@@ -38,6 +44,7 @@ public enum CaptureBundleStore {
         try enc.encode(meta).write(to: folder.appendingPathComponent(metaName))
     }
 
+    /// 번들 읽기. `loadImages == false` 면 원본 JPEG 를 건너뛰고 **썸네일만** 읽는다(목록 화면용, T-204).
     public static func read(from folder: URL, loadImages: Bool = true) throws -> CaptureBundle {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
@@ -48,15 +55,34 @@ public enum CaptureBundleStore {
             if loadImages, let data = try? Data(contentsOf: folder.appendingPathComponent(m.imageFile)) {
                 image = try? ImageCodec.decode(data)
             }
+            var thumb: RGBAImage? = nil
+            if let tf = m.thumbFile, let data = try? Data(contentsOf: folder.appendingPathComponent(tf)) {
+                thumb = try? ImageCodec.decode(data)
+            } else if let image {
+                thumb = ImageCodec.thumbnail(image, maxDimension: thumbnailMaxDimension)
+            }
             var depth: DepthMap? = nil
             if let df = m.depthFile, let w = m.depthWidth, let h = m.depthHeight,
                let data = try? Data(contentsOf: folder.appendingPathComponent(df)), data.count == w * h * 4 {
                 let vals = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
                 depth = DepthMap(width: w, height: h, values: vals)
             }
-            shots.append(CaptureShot(meta: m, image: image, depth: depth))
+            shots.append(CaptureShot(meta: m, image: image, depth: depth, thumbnail: thumb))
         }
         return CaptureBundle(meta: meta, shots: shots)
+    }
+
+    /// 저장된 캡처 폴더 목록 (최신순). 메타만 읽어 빠르다.
+    public static func list(in root: URL? = nil) -> [CaptureBundleMeta] {
+        let dir = root ?? defaultRoot
+        guard let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return items.compactMap { folder -> CaptureBundleMeta? in
+            guard let data = try? Data(contentsOf: folder.appendingPathComponent(metaName)) else { return nil }
+            return try? dec.decode(CaptureBundleMeta.self, from: data)
+        }
+        .sorted { $0.createdAt > $1.createdAt }
     }
 
     /// `.chosangcapture` 로 묶기.
@@ -75,9 +101,12 @@ public enum CaptureBundleStore {
         return try read(from: tmp, loadImages: loadImages)
     }
 
+    /// 기본 보관 위치 Documents/Captures/
+    public static var defaultRoot: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
+    }
     /// 기본 보관 위치 Documents/Captures/<uuid>/
     public static func defaultFolder(for id: UUID) -> URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("Captures", isDirectory: true).appendingPathComponent(id.uuidString, isDirectory: true)
+        defaultRoot.appendingPathComponent(id.uuidString, isDirectory: true)
     }
 }

@@ -23,6 +23,10 @@ struct LaunchOptions: Sendable {
     var usdzOverlay = true
     /// `camera=1`: 사진 폴백 캡처 탭(Mac·iOS 폴백)이 뜨자마자 카메라를 시작 (스크린샷 자동화)
     var camera = false
+    /// `receive=1`: 주고받기 탭에서 수신 대기를 자동 시작 (전송 점검·스크린샷)
+    var receive = false
+    /// `browse=1`: 주고받기 탭을 "보내기" 로 열고 근처 기기 검색을 자동 시작
+    var browse = false
 
     /// 명령행 인자 + 환경변수 `CHOSANG_ARGS="tab=capture camera=1"`.
     /// macOS 는 대시 없는 명령행 인자를 "열 문서" 로 취급해(문서 타입 선언 앱) 기본 창을 만들지 않으므로,
@@ -44,6 +48,8 @@ struct LaunchOptions: Sendable {
             case "previz": o.previz = on
             case "usdz": o.usdzOverlay = on
             case "camera": o.camera = on
+            case "receive": o.receive = on
+            case "browse": o.browse = on
             default: break
             }
         }

@@ -41,6 +41,7 @@ public struct PhotoCaptureGate: Sendable, Equatable {
     public var brightnessRange: ClosedRange<Float> = 0.22...0.85
     public var minFaceWidthRatio: Float = 0.16
     public var framesToAverage = 8
+    public var holdSeconds: Double = 0.7
     public init() {}
 }
 
@@ -273,6 +274,16 @@ public final class PhotoCaptureSession: NSObject, AVCaptureVideoDataOutputSample
             return true
         }
         return ok ? RGBAImage(width: w, height: h, bytes: buf) : nil
+    }
+
+    /// 조도 경고 문장 (T-203 배너). 문제없으면 nil.
+    public var lightWarning: String? {
+        guard status.isTracked else { return nil }
+        let b = status.brightness
+        if b < gate.brightnessRange.lowerBound { return String(format: "너무 어둡습니다 (밝기 %.2f) — 밝은 곳으로", b) }
+        if b > gate.brightnessRange.upperBound { return String(format: "너무 밝습니다 (밝기 %.2f) — 역광을 피하세요", b) }
+        if status.faceWidthRatio < gate.minFaceWidthRatio { return "카메라에 조금 더 가까이" }
+        return nil
     }
 
     /// 지금 프레임이 게이트를 통과하는가 (ARKit 경로 `passesGate` 와 같은 문장).
