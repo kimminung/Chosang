@@ -34,12 +34,14 @@ public enum FitError: Error, LocalizedError {
     case vertexCountMismatch(expected: Int, got: Int)
     case procrustesFailed(ShotKind)
     case rbfFailed
+    case sparseBundle
     public var errorDescription: String? {
         switch self {
         case .noNeutralShots: "중립 컷이 없습니다 (정면·좌·우·위 중 하나 이상 필요)"
         case .vertexCountMismatch(let e, let g): "얼굴 정점 수가 다릅니다 (템플릿 \(e), 캡처 \(g))"
         case .procrustesFailed(let k): "\(k.title) 컷 정합에 실패했습니다"
         case .rbfFailed: "두상 전파(RBF) 풀이에 실패했습니다"
+        case .sparseBundle: "사진만으로 만든 희소 번들(sparse)입니다 — ARKit 1220 정점이 없어 밀집 피팅을 할 수 없습니다. 희소 피팅(T-306, Vision 76 ↔ template.json 랜드마크)은 M3 에서 지원합니다"
         }
     }
 }
@@ -52,6 +54,7 @@ public enum FaceFitter {
         let templatePatch = Array(t.patchPositions)
         let shots = bundle.neutralShots
         guard !shots.isEmpty else { throw FitError.noNeutralShots }
+        guard !bundle.meta.sparse, !shots.allSatisfy({ $0.meta.isSparse }) else { throw FitError.sparseBundle }
         let templateAnchor = eyeMidpoint(templatePatch, manifest: t.manifest)
 
         // 1) 컷별 정렬 + 중립화 ---------------------------------------------------------

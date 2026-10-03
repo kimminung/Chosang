@@ -5,11 +5,77 @@
 
 > 상태: **M1 2차 완료** — 블렌더 템플릿(`Chosang_Blender/`, 10/3 저녁 갱신: 귀 v2·`Shoulders_shirt` 추가·프리비즈 재렌더) 반입, 2차 계약·내보내기 스크립트·검증기 완료. 앱은 번들 `Default.chosangtemplate`(bust.mesh + Template.usdz + EyesMouth.usdz) 로 돈다. 검증기 **오류 0 · 경고 0**.
 
-| visionOS 시뮬레이터 (기본 템플릿) | macOS (기본 템플릿, GPU) |
-|---|---|
-| ![visionOS](Docs/screenshots/m1-visionos-sim-default-template.png) | ![macOS](Docs/screenshots/m1-macos-default-template.png) |
+| visionOS 시뮬레이터 (기본 템플릿) | macOS (기본 템플릿, GPU) | iOS 시뮬레이터 (캡처 탭) |
+|---|---|---|
+| ![visionOS](Docs/screenshots/m1-visionos-sim-default-template.png) | ![macOS](Docs/screenshots/m1-macos-default-template.png) | ![iOS](Docs/screenshots/m1-ios-sim-capture.png) |
+
+iOS 화면은 캡처 탭 — 시뮬레이터에는 ARFaceTracking 이 없어 "TrueDepth 있는 iPhone 실기기에서 실행하세요" 안내가 뜬다(의도된 동작, 🧪 실기기 체크리스트 참고).
 
 52 셰이프 시트(macOS, `sheet=1`): ![sheet](Docs/screenshots/m1-shape-sheet.png)
+
+## 아키텍처
+
+**모듈 의존성** — `ChosangCore` 가 유일한 기반(Foundation/simd/CoreGraphics 만). 나머지는 전부 Core 하나에만 의존해 순환이 없다.
+
+```mermaid
+graph LR
+    subgraph ChosangKit["ChosangKit (로컬 패키지)"]
+        Core["ChosangCore<br/>모델·포맷·수학"]
+        Fit["ChosangFit<br/>피팅·외형 힌트"]
+        Texture["ChosangTexture<br/>투영·합성 캡처"]
+        Rig["ChosangRig<br/>BustEntity·FaceRig"]
+        Capture["ChosangCapture<br/>ARKit·마이크"]
+        IO["ChosangIO<br/>패키지·zip·PNG·USD"]
+        Validate["ChosangValidate<br/>계약 검사"]
+    end
+    CLI["chosang-validate (CLI)"]
+    App["Chosang 앱<br/>visionOS·iOS·macOS"]
+
+    Fit --> Core
+    Texture --> Core
+    Rig --> Core
+    Capture --> Core
+    IO --> Core
+    Validate --> Core
+    Validate --> IO
+    CLI --> Core
+    CLI --> IO
+    CLI --> Validate
+    CLI --> Texture
+    CLI --> Rig
+    App --> Core
+    App --> Fit
+    App --> Texture
+    App --> Rig
+    App --> Capture
+    App --> IO
+    App --> Validate
+```
+
+**데이터 흐름** — 블렌더 흉상이 기하의 진실, 사진은 형상 차이와 텍스처만 공급한다.
+
+```mermaid
+flowchart LR
+    Blender["블렌더 흉상 템플릿<br/>(Chosang_Blender/)"] -->|export_chosang.py| Pkg["Default.chosangtemplate<br/>bust.mesh · Template.usdz · clips"]
+    Pkg --> Loader["TemplateLoader"]
+    Photo["iPhone 사진 3–5장<br/>(ARKit · Vision)"] --> FaceFitter
+    Loader --> FaceFitter["ChosangFit<br/>Procrustes · RBF 전파 · 실루엣"]
+    FaceFitter --> Identity["Identity<br/>(형상 차이)"]
+    Identity --> Projector["ChosangTexture<br/>투영 · 접합 · 탈조명 · 채움"]
+    Projector --> Package[".chosang 패키지<br/>(ChosangIO)"]
+    Package --> BustEntity["ChosangRig<br/>BustEntity + FaceRig"]
+    BustEntity --> Preview["미리보기 — visionOS · iOS · macOS"]
+```
+
+**플랫폼 분기** — 소스는 한 타깃, `#if os(...)` 로만 갈린다(CLAUDE.md 원칙).
+
+```mermaid
+flowchart TD
+    App["Chosang (단일 앱 타깃, 번들 com.coulson.Chosang)"] --> OS{"#if os(...)"}
+    OS -->|visionOS| V["미리보기 · 받기(M6) · 스파이크"]
+    OS -->|iOS| I["미리보기 · 캡처(ARKit) · 스파이크"]
+    OS -->|macOS| M["미리보기 · 검증(chosang-validate) · 스파이크"]
+```
 
 ## 구조
 

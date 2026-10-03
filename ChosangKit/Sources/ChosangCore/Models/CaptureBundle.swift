@@ -132,19 +132,50 @@ public struct CaptureShotMeta: Codable, Sendable, Equatable {
     public var averagedFrames: Int
     public var timestamp: Double
 
+    // --- 희소 캡처(TrueDepth 없음 · Mac 카메라 · 사진 파일, T-205) 전용. ARKit 캡처에서는 모두 nil. ---
+    /// Vision 얼굴 랜드마크(revision 3 = 76점) 전부, 저장 이미지 **픽셀 좌표**(x 오른쪽, y 아래), 평평하게 x,y 반복. N 프레임 평균.
+    public var landmarks2D: [Float]?
+    /// 템플릿 `LandmarkName` 과 같은 이름의 핵심점(픽셀). 눈 꼬리 4·코끝·입꼬리 2·턱끝. 좌/우는 **피사체 기준**(비반전 이미지에서 피사체 왼쪽 = 이미지 오른쪽).
+    public var keyPoints2D: [String: [Float]]?
+    /// 얼굴 상자(픽셀, x·y·w·h)
+    public var faceBox: [Float]?
+    /// 자세 추정 (yaw·pitch·roll, 도). 부호는 ARKit 경로와 같다: yaw + = 피사체가 자기 왼쪽으로, pitch + = 위.
+    public var poseEstimate: [Float]?
+    /// intrinsics 가 센서값이 아니라 가정 FOV 로 추정된 값이면 true (Mac 은 `videoFieldOfView` 가 없다)
+    public var intrinsicsEstimated: Bool?
+
     public init(kind: ShotKind, imageFile: String, depthFile: String?, imageWidth: Int, imageHeight: Int, depthWidth: Int?, depthHeight: Int?,
                 intrinsics: Geometry.Intrinsics, cameraTransform: simd_float4x4, faceTransform: simd_float4x4,
-                faceVertices: [SIMD3<Float>], blendShapes: ArkitWeights, light: LightEstimate, averagedFrames: Int, timestamp: Double) {
+                faceVertices: [SIMD3<Float>], blendShapes: ArkitWeights, light: LightEstimate, averagedFrames: Int, timestamp: Double,
+                landmarks2D: [SIMD2<Float>]? = nil, keyPoints2D: [LandmarkName: SIMD2<Float>]? = nil, faceBox: CGRect? = nil,
+                poseEstimate: SIMD3<Float>? = nil, intrinsicsEstimated: Bool? = nil) {
         self.kind = kind; self.imageFile = imageFile; self.depthFile = depthFile
         self.imageWidth = imageWidth; self.imageHeight = imageHeight; self.depthWidth = depthWidth; self.depthHeight = depthHeight
         self.intrinsics = intrinsics; self.cameraTransform = Matrix4Codable(cameraTransform); self.faceTransform = Matrix4Codable(faceTransform)
         self.faceVertices = faceVertices.flatMap { [$0.x, $0.y, $0.z] }
         self.blendShapes = blendShapes; self.light = light; self.averagedFrames = averagedFrames; self.timestamp = timestamp
+        self.landmarks2D = landmarks2D?.flatMap { [$0.x, $0.y] }
+        self.keyPoints2D = keyPoints2D.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, [$0.value.x, $0.value.y]) }) }
+        self.faceBox = faceBox.map { [Float($0.minX), Float($0.minY), Float($0.width), Float($0.height)] }
+        self.poseEstimate = poseEstimate.map { [$0.x, $0.y, $0.z] }
+        self.intrinsicsEstimated = intrinsicsEstimated
     }
 
     public var faceVertexArray: [SIMD3<Float>] {
         stride(from: 0, to: faceVertices.count - 2, by: 3).map { SIMD3(faceVertices[$0], faceVertices[$0 + 1], faceVertices[$0 + 2]) }
     }
+    /// 희소 캡처 랜드마크 (픽셀). ARKit 캡처면 빈 배열.
+    public var landmarkArray: [SIMD2<Float>] {
+        guard let l = landmarks2D, l.count >= 2 else { return [] }
+        return stride(from: 0, to: l.count - 1, by: 2).map { SIMD2(l[$0], l[$0 + 1]) }
+    }
+    /// 핵심점 조회 (픽셀).
+    public func keyPoint(_ name: LandmarkName) -> SIMD2<Float>? {
+        guard let v = keyPoints2D?[name.rawValue], v.count == 2 else { return nil }
+        return SIMD2(v[0], v[1])
+    }
+    /// ARKit 밀집 메시 없이 사진·랜드마크만 있는 컷인가.
+    public var isSparse: Bool { faceVertices.isEmpty && landmarks2D != nil }
 }
 
 /// 번들 메타 (meta.json).
