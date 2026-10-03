@@ -1,0 +1,18 @@
+초상 (Chosang)
+Copyright 2026 Kim Minung (coulson)
+
+This product includes software developed for Apple Vision Pro, iPhone and Mac
+using Apple frameworks (SwiftUI, RealityKit, ARKit, Vision, AVFAudio, Metal,
+ModelIO, Network, FoundationModels). Apple frameworks are subject to the Apple
+SDK license and are not covered by the Apache License, Version 2.0 that applies
+to this repository's source code.
+
+Portions (ArkitBlendShapes, HangulViseme, ThinPlateSpline, AppearanceHints,
+MicLevelMeter, FaceRig) were ported from the 소반 (Soban) project by the same
+author, also licensed under Apache-2.0.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0

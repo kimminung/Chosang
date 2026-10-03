@@ -1,0 +1,38 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# 캡처 데이터(사진·깊이·얼굴 메시)는 절대 커밋하지 않는다 — Fixtures 에는 합성 번들만
+Captures/
+*.chosangcapture
+!Fixtures/synthetic-*.chosangcapture
+Personas/
+*.chosang/capture/
+
+# 블렌더 백업·재생성 가능한 대용량 산출물 (스크립트로 5초면 다시 만든다)
+*.blend1
+*.blend2
+Chosang_Blender/Chosang_Template_rebuild.blend
+Chosang_Blender/Template/Template.usdz
+Chosang_Blender/Template/library/
+Chosang_Blender/build/*.log
+
+# Local tooling
+/tmp/
