@@ -3,7 +3,7 @@
 # 사용: tools/make_default_template.sh <Template 폴더> [출력 경로]
 set -e
 SRC="${1:?Template 폴더}"
-OUT="${2:-$(dirname "$0")/../MyApp/Resources/Templates/Default.chosangtemplate}"
+OUT="${2:-$(dirname "$0")/../Chosang/Resources/Templates/Default.chosangtemplate}"
 TMP=$(mktemp -d)
 mkdir -p "$TMP/t"
 for f in template.json bust.mesh Template.usdz EyesMouth.usdz library.json; do [ -f "$SRC/$f" ] && cp "$SRC/$f" "$TMP/t/"; done

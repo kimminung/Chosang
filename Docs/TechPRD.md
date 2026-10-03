@@ -253,7 +253,7 @@
 
 **가정**
 - 라이브러리 USDZ(146 MB)는 앱 번들에 넣지 않았다(M5 에서 온디맨드·압축 결정).
-- `Shoulders_shirt` 가 올 때까지 검증기 "오류 1" 상태로 기본 템플릿을 쓴다.
+- ~~`Shoulders_shirt` 가 올 때까지 검증기 "오류 1" 상태로 기본 템플릿을 쓴다.~~ → 10/3 저녁 블렌더 갱신본(귀 v2 · `Shoulders_shirt` · 프리비즈 재렌더)으로 **오류 0 · 경고 0**. 위상(정점 수·순서)이 같아 bust.mesh 크기·패치 해시·랜드마크·입/턱 측정값은 그대로이고 귀 정점 위치와 `symmetryMap` 3항목, 라이브러리 19종만 바뀌었다. 프로젝트는 사용자가 `Desktop/Chosang` 으로 옮기고 타깃을 `Chosang` 으로 바꿨다(INFOPLIST_FILE 경로만 손봄). `Chosang_Blender/build/*.py` 는 Xcode 용 `build/` ignore 규칙에 가려져 1차 커밋에서 빠졌었다 → `!Chosang_Blender/build/` 로 복구.
 - 클립 뼈 값은 흉상 공간 피벗 기준 로컬 오프셋이며 Neck→Head→Eye 합성은 M5 스키닝에서 구현(지금은 Head 회전만 근사).
 
 **다음 (M2)**: Prompt.md §B M2 — iPhone 캡처 T-201~T-207. 그 전에 🧪 T-007 프로브로 ARKit 삼각형 해시 기록.

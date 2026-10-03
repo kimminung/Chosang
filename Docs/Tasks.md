@@ -7,7 +7,7 @@
 ## M0 · 프로젝트 셋업 · 스파이크
 | ID | 작업 | 상태 |
 |---|---|---|
-| T-001 | Xcode 프로젝트 `Chosang`: 단일 앱 타깃 3 플랫폼(xros/xrsimulator/iphoneos/iphonesimulator/macosx, family 1,2,7), 번들 `com.coulson.Chosang`, 배포 visionOS 27 · iOS 26 · macOS 26, 자동 서명 팀 5Z8G42AVKD, 엔타이틀먼트 없음 | ✅ 1차 — Xcode 타깃 이름은 `MyApp`(자동 생성), 제품/표시 이름 Chosang/초상. macOS 샌드박스 카메라·오디오 입력·네트워크(빌드 설정) |
+| T-001 | Xcode 프로젝트 `Chosang`: 단일 앱 타깃 3 플랫폼(xros/xrsimulator/iphoneos/iphonesimulator/macosx, family 1,2,7), 번들 `com.coulson.Chosang`, 배포 visionOS 27 · iOS 26 · macOS 26, 자동 서명 팀 5Z8G42AVKD, 엔타이틀먼트 없음 | ✅ 1차 — Xcode 타깃 이름은 `MyApp`(자동 생성), 제품/표시 이름 Chosang/초상. 10/3 저녁 사용자가 `Desktop/Chosang` 으로 이동하고 프로젝트·타깃·폴더를 `Chosang` 으로 변경(INFOPLIST_FILE 경로 수정). macOS 샌드박스 카메라·오디오 입력·네트워크(빌드 설정) |
 | T-002 | 로컬 Swift Package `ChosangKit`(타깃: Core·Fit·Texture·Rig·Capture·IO·Validate, 테스트 타깃), 앱이 의존 | ✅ 1차 — + `chosang-validate` 실행 타깃. 함정: Xcode 가 프로젝트를 다시 저장하면 외부에서 넣은 패키지 참조가 지워진다(pbxproj 재적용 필요) |
 | T-003 | Info.plist: 카메라(ARKit 얼굴 데이터 사용 고지)·로컬 네트워크·Bonjour `_chosang._tcp`, UTI `com.coulson.chosang.persona`/`.chosangcapture`, 문서 타입 | ✅ 1차 (+ 마이크 고지) |
 | T-004 | 🔬 `Entity(named:)` 로 로드한 USDZ 의 `MeshResource.contents` 에서 `blendShapeOffsets(named:)` 52개·스킨 가중치·조인트가 읽히는지(소반 `DemoAvatar_Ethan.usdz` 로 즉시 확인). 안 되면 `bust.mesh` 경로 확정 | ✅ 1차 — 결과는 `Docs/Spikes.md` T-004. 결정: USDZ 를 1차 경로로 쓰되 `bust.mesh` 를 **항상 함께** 내보내 검증기가 교차 확인 |
@@ -23,9 +23,9 @@
 |---|---|---|
 | T-101 | `Docs/Blender-요청.md` 확정(사용자 검토) → 흉상 토폴로지(ARKit 1220 패치 + 두상·목·어깨), UV 레이아웃, 스켈레톤, 52 셰이프키, 라이브러리, 클립 목록, 좌표계 | ✅ 2차 계약 — 1차 변경 제안 9건 모두 수용(§8), 블렌더 쪽 할 일 §9 |
 | T-102 | `tools/blender/export_chosang.py`: `Template.usdz`(+`bust.mesh` 폴백), `clips/<name>.json`, `template.json`(랜드마크 정점 id ↔ Vision 76, scalp 집합, UV 영역, 대칭 맵), `previz/<clip>.mp4` 일괄 렌더. Blender 4.1+/5.x, Apply Modifiers OFF | ✅ 2차 — Chosang_Template.blend(5.2) 헤드리스 4.5 s. 커스텀 속성 4개 → template.json(스키마 2)·bust.mesh v2(코너 UV)·library.json·clips(슬롯 액션, 끝 프레임 포함)·library/<name>.usdz. USD forward 축 함정: 'Z' → 얼굴 −Z(180° 요), **NEGATIVE_Z** 가 맞음(교차 검증 0.0 mm) |
-| T-103 | `chosang-validate` CLI: 정점 수·패치 순서(OBJ 해시)·셰이프키 52 이름·범위·중립 0·스켈레톤 이름·라이브러리 명명·UV 범위·클립 fps/길이/루프 일치·previz 존재. 실패 항목을 블렌더 쪽 문장으로 출력 | ✅ 2차 — template.json 기준 허용 오차, Apple OBJ 사각형/삼각형 SHA-256, OBJ 위치 대조, UV 겹침(루프 UV 텍셀), 수염 bustIndex, 어깨 Root/Neck, 클립 frames=L+1, 프리비즈 카메라, `--with-usdz` RealityKit 교차 확인(솔기 분할 허용). 1차 산출물: 오류 1(Shoulders_shirt 없음) |
+| T-103 | `chosang-validate` CLI: 정점 수·패치 순서(OBJ 해시)·셰이프키 52 이름·범위·중립 0·스켈레톤 이름·라이브러리 명명·UV 범위·클립 fps/길이/루프 일치·previz 존재. 실패 항목을 블렌더 쪽 문장으로 출력 | ✅ 2차 — template.json 기준 허용 오차, Apple OBJ 사각형/삼각형 SHA-256, OBJ 위치 대조, UV 겹침(루프 UV 텍셀), 수염 bustIndex, 어깨 Root/Neck, 클립 frames=L+1, 프리비즈 카메라, `--with-usdz` RealityKit 교차 확인(솔기 분할 허용). 1차 산출물: 오류 1(Shoulders_shirt 없음) → 10/3 저녁 갱신본: **오류 0 · 경고 0** |
 | T-104 | `BustTemplate` 로더: USDZ + `template.json` → 정점·인덱스·UV·델타·스킨·랜드마크·대칭 맵, 1회 캐시, 버전 해시 | ✅ 2차 — 기하 = bust.mesh(`TemplateStore`, 번들 `Default.chosangtemplate` 30 MB → Application Support 캐시 1회, 0.54 s), 에셋 = Template.usdz(눈알·입안; 엔티티 월드 변환 적용). 렌더 메시는 솔기 분할(11,569 → 11,931) |
-| T-105 | 블렌더 1차 산출물(사용자, Blender MCP + Claude) 수령 → 검증기 통과 → `Resources/Templates/Default/` | 🔄 1차 수령·반입(`Chosang_Blender/`) — 검증기 오류 1건(Shoulders_shirt) 남음. 통과 전이지만 `Default.chosangtemplate` 로 앱에 들어감 |
+| T-105 | 블렌더 1차 산출물(사용자, Blender MCP + Claude) 수령 → 검증기 통과 → `Resources/Templates/Default/` | ✅ 1차 수령·반입(`Chosang_Blender/`) → 10/3 저녁 갱신(귀 v2 · `Shoulders_shirt` · 프리비즈 7종 재렌더) 로 **검증기 통과**. `Chosang/Resources/Templates/Default.chosangtemplate` 재생성(30,259 KB) |
 | T-106 | 시뮬레이터: 템플릿 로드 → 52 셰이프 슬라이더 패널 → 각 셰이프 단독 1.0 스냅샷 시트(ARKit 레퍼런스 포즈와 육안 비교) | ✅ 2차 — `sheet=1`(52 순환 1.2 s, 프리비즈 카메라) → `Docs/screenshots/m1-shape-sheet.png`(macOS GPU). 육안 비교 메모는 TechPRD §13 |
 
 ## M2 · 캡처 (iPhone)
@@ -107,9 +107,9 @@
 | T-804 | 렌더 전환(메시 ↔ 스플랫), 시뮬레이터 폴백, PLY 내보내기 | ⏳ v2 |
 
 ## 블렌더 쪽 할 일 (2차 계약 §9 요약)
-1. `Shoulders_shirt` 오브젝트 추가(Library_Shoulders, Root/Neck 스킨) → 검증기 오류 0.
+1. ~~`Shoulders_shirt` 오브젝트 추가(Library_Shoulders, Root/Neck 스킨) → 검증기 오류 0.~~ ✅ 10/3 저녁 반영.
 2. (선택) `chosang_landmarks` 에 brow_inner_left/right.
-3. 후속: 셰이프키 손질(funnel·pucker·press), 이마 이음 능선, 수염 경계 계단, 귀 모델.
+3. 후속: 셰이프키 손질(funnel·pucker·press), 이마 이음 능선, 수염 경계 계단. 귀는 v2(`build/ears.py`, 실제 윤곽 스플라인·높이별 돌출각, 위상 동일) 로 반영됨 — 연골 주름은 여전히 단순.
 
 ## 실기기 체크리스트 (M0 — 🧪 지금 바로 확인 가능)
 0. iPhone(TrueDepth): 캡처 탭 → 세션 시작 → "T-007 프로브" 에 정점 1220 · 삼각형 수 · 해시 · 깊이 640×480 DepthFloat32 · intrinsics · 조명 방향 표시 → 값을 `Docs/Spikes.md` T-007 과 `ARKitFaceTopology.referenceTriangleHash` 에 기록. 5컷 촬영 → 번들 저장 → 크기·시간.

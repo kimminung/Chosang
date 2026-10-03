@@ -126,7 +126,7 @@ T-004 재확인(Template.usdz, RealityKit 27): Bust 파트 11,931 정점(솔기 
 
 ## 9. 블렌더 쪽 할 일 (2026-10-03, 검증기 결과)
 
-1. **`Shoulders_shirt` 가 없음** — `Library_Shoulders` 에 `Shoulders_tee` 만 있다(README 에는 3,031 정점으로 적혀 있음). `build/library_misc.py` 의 shirt 빌드가 작업 파일에 반영되지 않은 듯. 만들어 넣으면 검증기 `library.missing` 이 사라진다.
+1. ~~**`Shoulders_shirt` 가 없음**~~ — ✅ 10/3 저녁 갱신본에 포함(라이브러리 19종). 검증기 오류 0.
 2. (선택) 랜드마크 `brow_inner_left/right` 를 `chosang_landmarks` 에 추가 — 없으면 앱이 눈 위 1.5 cm 로 추정한다.
-3. 후속 과제로 기록만: 셰이프키 절차적 1차본(funnel·pucker·press 는 정면 변화 작음 → 아티스트 손질), 패치 위쪽(이마 끝) 이음 능선, 수염 셸 경계 계단, 귀 단순 모델.
+3. 후속 과제로 기록만: 셰이프키 절차적 1차본(funnel·pucker·press 는 정면 변화 작음 → 아티스트 손질), 패치 위쪽(이마 끝) 이음 능선, 수염 셸 경계 계단. 귀는 v2 반영(윤곽 스플라인·돌출각 13°→19°→22°·귀뿌리 4 mm, 위상 동일) — 연골 주름만 후속.
 4. 바꾸지 않아도 되는 것: `_QA_*`·`_Ref_Soban` 컬렉션(스크립트가 무시), Mouth_Inner 셰이프 USD 이름 접미 숫자(앱이 처리), 이미지 데이터블록 중복(`T_*.001`, 같은 파일).

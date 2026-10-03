@@ -1,6 +1,6 @@
 # 초상 (Chosang)
 
-visionOS 27 · iOS 26 · macOS 26 단일 앱 타깃(Xcode 타깃 이름 `MyApp`, 제품 `Chosang`, 번들 `com.coulson.Chosang`) + 로컬 패키지 `ChosangKit`.
+visionOS 27 · iOS 26 · macOS 26 단일 앱 타깃(Xcode 프로젝트·타깃·스킴 `Chosang`, 소스 폴더 `Chosang/`, 번들 `com.coulson.Chosang`; 10/3 저녁까지는 `MyApp`) + 로컬 패키지 `ChosangKit`. 리포 위치 `/Users/coulson/Desktop/Chosang`.
 문서: `Docs/TechPRD.md`(설계·결정), `Docs/Tasks.md`(상태), `Docs/Blender-요청.md`(에셋 계약), `Docs/Spikes.md`(스파이크 결과), `Docs/Prompt.md`(마일스톤 프롬프트).
 
 ## 원칙

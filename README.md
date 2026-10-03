@@ -3,7 +3,7 @@
 **사진 3–5장으로 만드는 나만의 흉상 페르소나** — visionOS 27 · iOS 26 · macOS 26.
 블렌더 흉상 템플릿이 기하의 진실이고, iPhone(TrueDepth) 캡처는 "내 얼굴의 형상 차이 + 텍스처"만 공급한다. 완성된 페르소나는 ARKit 52 표정과 프리비즈 클립으로 움직이고 [소반](https://github.com/)(두레반 모임 앱)에 그대로 공급된다.
 
-> 상태: **M1 2차** — 블렌더 1차 템플릿(`Chosang_Blender/`) 반입, 2차 계약·내보내기 스크립트·검증기 완료. 앱은 번들 `Default.chosangtemplate`(bust.mesh + Template.usdz) 로 돈다. 검증기 잔여 오류 1건(`Shoulders_shirt`).
+> 상태: **M1 2차 완료** — 블렌더 템플릿(`Chosang_Blender/`, 10/3 저녁 갱신: 귀 v2·`Shoulders_shirt` 추가·프리비즈 재렌더) 반입, 2차 계약·내보내기 스크립트·검증기 완료. 앱은 번들 `Default.chosangtemplate`(bust.mesh + Template.usdz + EyesMouth.usdz) 로 돈다. 검증기 **오류 0 · 경고 0**.
 
 | visionOS 시뮬레이터 (기본 템플릿) | macOS (기본 템플릿, GPU) |
 |---|---|
@@ -14,7 +14,7 @@
 ## 구조
 
 ```
-MyApp/                 앱 타깃 (제품 Chosang, 번들 com.coulson.Chosang) — 3 플랫폼 한 타깃, #if os 분기
+Chosang/               앱 타깃 Chosang (번들 com.coulson.Chosang, 구 MyApp) — 3 플랫폼 한 타깃, #if os 분기
   App/                 ChosangApp · AppModel · LaunchOptions
   Views/               미리보기(RealityView + 52 슬라이더 + 클립) · 스파이크 · 캡처(iOS) · 검증(macOS)
   Resources/Templates/Legacy/   소반 USDZ(임시 템플릿)
@@ -49,13 +49,13 @@ swift run chosang-validate --synthetic /tmp/ChosangTemplate                 # �
 swift run chosang-validate --list-legacy-failures                # 소반 USDZ 로 실패하는 항목 = 블렌더 작업 우선순위
 swift run chosang-validate --make-fixture ../Fixtures/x.chosangcapture [perturbed]
 
-# 앱 (Xcode 에서 MyApp 스킴). 시뮬레이터 자동 실행 인자:
+# 앱 (Xcode 에서 Chosang 스킴). 시뮬레이터 자동 실행 인자:
 #   template=default|synthetic|legacy  clip=<idle_breathe|…|bow>  tab=preview|capture|validate|spikes|receive  fixture=perturbed  report=1  sheet=1  previz=1
 ```
 
 ## 지금 되는 것 (M1 2차)
 
-- 기본 템플릿(블렌더 1차, 11,569 정점 · 52 셰이프 · 뼈 6 · 클립 11 · 라이브러리 18) 미리보기 — bust.mesh 기하 + Template.usdz 눈알·입안, Mac GPU `LowLevelDeformation`.
+- 기본 템플릿(블렌더, 11,569 정점 · 52 셰이프 · 뼈 6 · 클립 11 · 라이브러리 19) 미리보기 — bust.mesh 기하 + Template.usdz 눈알·입안, Mac GPU `LowLevelDeformation`.
 - 2차 계약 검증기(규칙 40여 개, 한국어 수정 문장, `--with-usdz`), 내보내기 스크립트(헤드리스 4.5 s), 셰이프 시트, 프리비즈 카메라 프리셋.
 
 ## M0 에서 된 것
