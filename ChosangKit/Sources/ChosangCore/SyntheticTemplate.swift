@@ -204,6 +204,21 @@ public enum SyntheticTemplate {
         landmarks[LandmarkName.shoulderLeft.rawValue] = nearest(theta: 90, phi: -89)
         landmarks[LandmarkName.shoulderRight.rawValue] = nearest(theta: 270, phi: -89)
 
+        // 패치 루프 (계약 `patchLoops`): 눈꺼풀 고리(행 25…27 × 열 3…7 / 12…16 의 테두리, 순서대로) · 입 고리. 눈알 링 피팅(T-302) 테스트용.
+        func rectLoop(rows r0: Int, _ r1: Int, cols c0: Int, _ c1: Int) -> [Int] {
+            var loop: [Int] = []
+            for c in c0...c1 { loop.append(patchID(r0, c)) }
+            for r in (r0 + 1)..<r1 { loop.append(patchID(r, c1)) }
+            for c in stride(from: c1, through: c0, by: -1) { loop.append(patchID(r1, c)) }
+            for r in stride(from: r1 - 1, to: r0, by: -1) { loop.append(patchID(r, c0)) }
+            return loop
+        }
+        let patchLoops: [String: [Int]] = [
+            "eye_right": rectLoop(rows: 25, 27, cols: 3, 7),
+            "eye_left": rectLoop(rows: 25, 27, cols: 12, 16),
+            "mouth": rectLoop(rows: 46, 52, cols: 5, 14),
+        ]
+
         // 대칭 맵
         var sym = [Int32](repeating: -1, count: V)
         for ri in 0..<R {
@@ -275,6 +290,7 @@ public enum SyntheticTemplate {
         manifest.schema = 2
         manifest.patchFaceCount = 0   // 합성 패치는 사각형이 아닌 삼각형 격자 (Apple 해시 검사 생략 대상)
         manifest.symmetryMap = sym
+        manifest.patchLoops = patchLoops
         manifest.eyeSpacing = 0.064
         manifest.mouthCenter = [0, headCenterY + by * sin(-32.5 * Float.pi / 180), 0.08]
         manifest.chinY = pos[patchID(60, 10)].y
@@ -466,5 +482,40 @@ public enum SyntheticAlbedo {
             }
         }
         return img
+    }
+
+    /// **대역 제한** 합성 알베도 (M4 T-408 충실도 측정용): 같은 피부톤·입술·눈썹이지만 경계는 smoothstep(폭 `edge`, UV 단위)이고 주근깨가 없다.
+    /// `color(u:v:)` 의 1텍셀 주근깨·계단 경계는 어떤 투영기도 256² 에서 재현할 수 없어(에일리어싱) 파이프라인 오차와 섞인다.
+    public static func smooth(u: Float, v: Float, edge: Float = 0.012) -> SIMD3<Float> {
+        func step(_ x: Float) -> Float { let t = min(1, max(0, x)); return t * t * (3 - 2 * t) }
+        /// 사각형 [a0,a1]×[b0,b1] 안쪽 1, 경계에서 부드럽게 0
+        func box(_ a: Float, _ a0: Float, _ a1: Float, _ b: Float, _ b0: Float, _ b1: Float) -> Float {
+            step((a - a0) / edge) * step((a1 - a) / edge) * step((b - b0) / edge) * step((b1 - b) / edge)
+        }
+        var c = SIMD3<Float>(0.86, 0.68, 0.58)
+        c += SIMD3(0.06, 0.03, 0.0) * sin(u * 6.283 * 2) * 0.5
+        c -= SIMD3(0.0, 0.02, 0.04) * v
+        if v < 0.5 + edge {
+            let rows = Float(SyntheticTemplate.patchRows - 1), cols = Float(SyntheticTemplate.patchCols - 1)
+            // 패치 행 r = (0.5 − v)/0.5 · rows, 열 col = u · cols → UV 로 환산한 사각형
+            func vOf(_ r: Float) -> Float { 0.5 - r / rows * 0.5 }
+            func uOf(_ col: Float) -> Float { col / cols }
+            let lips = box(v, vOf(51.5), vOf(46.5), u, uOf(5), uOf(14))
+            c = c * (1 - lips) + SIMD3(0.70, 0.36, 0.38) * lips
+            let browL = box(v, vOf(22.5), vOf(19.5), u, uOf(2.5), uOf(8)), browR = box(v, vOf(22.5), vOf(19.5), u, uOf(11), uOf(16.5))
+            let brow = max(browL, browR)
+            c = c * (1 - brow) + SIMD3(0.28, 0.20, 0.16) * brow
+            let eyeL = box(v, vOf(26.7), vOf(25.3), u, uOf(3), uOf(7)), eyeR = box(v, vOf(26.7), vOf(25.3), u, uOf(12), uOf(16))
+            let eye = max(eyeL, eyeR)
+            c = c * (1 - eye) + SIMD3(0.95, 0.95, 0.95) * eye
+        }
+        if v > 0.5 {
+            let hair = SIMD3<Float>(0.18, 0.12, 0.09)
+            let t = min(1, max(0, (v - 0.55) / 0.2))
+            c = c * (1 - t) + hair * t
+            let cloth = step((v - 0.85) / edge)
+            c = c * (1 - cloth) + SIMD3(0.25, 0.35, 0.55) * cloth
+        }
+        return simd_clamp(c, SIMD3(repeating: 0), SIMD3(repeating: 1))
     }
 }

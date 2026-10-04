@@ -103,6 +103,14 @@ final class AppModel {
 
     // 피팅 (받은 캡처 번들 → 내 흉상)
     var isFitting = false
+    /// 텍스처 빌드 진행 (단계 이름 · 0…1)
+    var buildStage: String?
+    var buildProgress: Double = 0
+    /// 텍스처 설정 (M4 T-407): 2k/4k, 탈조명 강도. 바꾸면 "텍스처 다시 만들기" 로 재빌드
+    var albedoSize = 2048
+    var delightStrength: Float = 0.5
+    /// 마지막 피팅의 입력 (텍스처만 다시 만들 때 재사용)
+    var lastCaptureURL: URL?
     /// 마지막 피팅 품질 요약 (미리보기 패널·정보 시트에 표시)
     var fitSummary: String?
     /// 캡처에서 만든 알베도 — 있으면 흉상에 입힌다 (M4 1차, CPU 투영)
@@ -114,6 +122,13 @@ final class AppModel {
     var lastTextureQuality: TextureQuality?
     /// 마지막으로 저장한 `.chosang`
     var savedPersonaURL: URL?
+    /// 미소 컷 검증 (T-308): 캡처 가중치 그대로 렌더한 흉상 ↔ 사진
+    struct SmileCheck {
+        var photo: CGImage
+        var render: CGImage
+        var caption: String
+    }
+    var smileCheck: SmileCheck?
     /// 진단용 알베도 이미지 (UV 레이아웃을 눈으로 확인)
     var albedoPreview: CGImage?
     /// 텍스처를 입힐지 (끄면 기본 살색으로 — 형상만 비교할 때)
@@ -310,9 +325,9 @@ final class AppModel {
         return result
     }
 
-    /// 받은(또는 저장된) 캡처 번들로 **내 흉상**을 만든다 — `FaceFitter` 밀집 피팅 → `Identity` → 미리보기.
-    /// 번들의 ARKit 1220 정점이 템플릿 얼굴 패치와 1:1 대응하므로 추가 정보 없이 바로 돈다(TechPRD §6.4).
-    /// 희소 번들(사진 폴백)은 `FitError.sparseBundle` 로 거부된다 — 희소 피팅은 M3 T-306.
+    /// 받은(또는 저장된) 캡처 번들로 **내 흉상**을 만든다 — `FaceFitter` → `Identity` → 미리보기.
+    /// ARKit 번들은 밀집 피팅(패치 치환 · 두상 전파 · 실루엣 · jawOpen 보정), 희소 번들(사진 폴백)은 `SparseFitter`(M3 T-306, 품질 "기본").
+    /// 미소 컷이 있으면 검증 렌더(T-308)도 만든다.
     @discardableResult
     func buildPersona(fromCapture url: URL) async -> String? {
         guard !isFitting else { return nil }
@@ -321,35 +336,56 @@ final class AppModel {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let template = self.template
+        struct BuildResult: Sendable {
+            var identity: Identity; var meta: CaptureBundleMeta
+            var albedo: RGBAImage?; var mask: RGBAImage?; var textureQuality: TextureQuality?; var textureSummary: String?
+            var smilePhoto: RGBAImage?; var smileRender: RGBAImage?; var smileCaption: String?
+        }
+        var texOptions = TextureBuildOptions.preset(size: albedoSize)
+        texOptions.delight = delightStrength
+        let progress: TextureProgress = { [weak self] stage, f in
+            Task { @MainActor in self?.buildStage = stage.title; self?.buildProgress = (Double(stage.rawValue) + f) / Double(TextureStage.allCases.count) }
+        }
+        buildStage = "피팅"; buildProgress = 0
+        defer { buildStage = nil }
         do {
-            // 읽기·피팅·텍스처는 메인 밖에서 (1220 패치 + RBF 300 중심 + 512² 투영이라 몇 초 걸린다)
-            let result: (Identity, CaptureBundleMeta, RGBAImage?, RGBAImage?, TextureQuality?) = try await Task.detached(priority: .userInitiated) {
+            // 읽기·피팅·텍스처는 메인 밖에서 (1220 패치 + RBF 300 중심 + 실루엣 CG + 2k 텍스처라 몇 초 걸린다)
+            let r: BuildResult = try await Task.detached(priority: .userInitiated) {
                 let bundle = try CaptureBundleStore.readArchive(url)      // 텍스처에 쓸 사진까지 읽는다
                 let identity = try FaceFitter.fit(bundle: bundle, template: template)
-                // 피팅된 정점 + 컷별 정렬로 알베도 투영 (M4 1차 CPU)
-                var albedo: RGBAImage? = nil
-                var mask: RGBAImage? = nil
-                var tq: TextureQuality? = nil
+                var out = BuildResult(identity: identity, meta: bundle.meta)
+                // 피팅된 정점 + 컷별 정렬로 알베도 (M4 TextureBuilder: 깊이 정합·가림·접합·탈조명·채움·필터).
+                // 희소(사진 폴백) 번들도 SparseFitter 가 컷별 정렬을 만들어주므로(FaceFitter.alignments) 텍스처가 생긴다 — 다만 깊이가 없어
+                // 배경 거부 검사가 빠지고 조명 추정도 꺼진 채로 돌아간다(TextureBuilder 쪽 가드에 맡긴다).
                 let aligns = FaceFitter.alignments(bundle: bundle, template: template)
-                let po = CaptureTexturing.deviceOptions(size: 512)   // 실기기: 깊이 허용치 완화
-                if let r = try? CaptureTexturing.project(bundle: bundle, template: template, positions: identity.positions,
-                                                         alignments: aligns, options: po) {
-                    albedo = r.albedo
-                    mask = r.mask
-                    tq = r.quality
+                if let t = try? TextureBuilder.build(bundle: bundle, template: template, identity: identity, alignments: aligns, options: texOptions, progress: progress) {
+                    out.albedo = t.albedo; out.mask = t.mask; out.textureQuality = t.quality; out.textureSummary = t.summary
                 }
-                return (identity, bundle.meta, albedo, mask, tq)
+                // 희소 컷은 ARKit 블렌드셰이프가 전부 0 이라(표정을 저장하지 않음) 미소 검증 카드가 "중립 렌더 vs 웃는 사진" 처럼
+                // 늘 가중치 합 0 으로 뜬다 — 의미가 없으니 숨긴다.
+                if let v = SmileVerification.make(bundle: bundle, template: template, identity: identity, alignments: aligns, albedo: out.albedo, width: 320),
+                   v.weightSum > 0.01 {
+                    out.smilePhoto = v.photo; out.smileRender = v.render
+                    let top = v.topShapes.map { "\($0.0.rawValue) \(String(format: "%.2f", $0.1))" }.joined(separator: " · ")
+                    out.smileCaption = String(format: "%@ 컷 · 가중치 합 %.2f · %@", v.kind.title, v.weightSum, top)
+                        + (identity.quality?.smileResidualRMS.map { String(format: " · 잔차 %.1f mm", $0 * 1000) } ?? "")
+                }
+                return out
             }.value
-            let (id, meta, albedo, mask, tq) = result
-            identity = id
+            identity = r.identity
             loadError = nil
-            let q = id.quality
-            let summary = String(format: "%@ · 컷 %d · 패치 RMS %.2f mm · %.1f s · 스케일 %.3f",
-                                 meta.device, q?.shotsUsed ?? 0, (q?.patchRMS ?? 0) * 1000, q?.elapsedSeconds ?? 0, id.scale)
+            let q = r.identity.quality
+            let summary = "\(r.meta.device) · " + (q?.summaryLine ?? "") + String(format: " · 스케일 %.3f", r.identity.scale)
             fitSummary = summary
             log("피팅: " + summary)
-            lastAlbedo = albedo; lastMask = mask; lastTextureQuality = tq; savedPersonaURL = nil
-            applyAlbedo(albedo, quality: tq)
+            if let n = q?.notes { log("피팅 메모: " + n) }
+            lastAlbedo = r.albedo; lastMask = r.mask; lastTextureQuality = r.textureQuality; savedPersonaURL = nil
+            lastCaptureURL = url
+            applyAlbedo(r.albedo, quality: r.textureQuality)
+            if let s = r.textureSummary { textureSummary = s; log("텍스처: " + s) }
+            if let p = r.smilePhoto, let rd = r.smileRender, let pc = ImageCodec.cgImage(p), let rc = ImageCodec.cgImage(rd) {
+                smileCheck = SmileCheck(photo: pc, render: rc, caption: r.smileCaption ?? "")
+            } else { smileCheck = nil }
             return summary + (textureSummary.map { "\n" + $0 } ?? "")
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -369,6 +405,7 @@ final class AppModel {
         let device = Self.localDeviceName
         let fitQ = identity.quality
         let texQ = lastTextureQuality
+        let delight = delightStrength
         do {
             let url: URL = try await Task.detached(priority: .userInitiated) {
                 var manifest = ChosangManifest(name: name, createdOn: device,
@@ -376,6 +413,7 @@ final class AppModel {
                 manifest.quality = fitQ
                 manifest.textureQuality = texQ
                 manifest.albedoSize = albedo?.width ?? 0
+                manifest.delightStrength = delight
                 let pkg = ChosangPackage(manifest: manifest, identity: identity, albedo: albedo, mask: mask, thumbnail: nil)
                 let folder = FileManager.default.temporaryDirectory.appendingPathComponent("persona-\(manifest.id.uuidString)")
                 defer { try? FileManager.default.removeItem(at: folder) }
@@ -409,8 +447,8 @@ final class AppModel {
             if let q = quality {
                 // 얼굴만 찍으므로 관측은 UV 전체의 일부다. 20 % 아래면 정합·깊이 쪽을 의심해야 한다.
                 let warn = q.observedRatio < 0.2 ? " ⚠︎ 관측 낮음" : ""
-                textureSummary = String(format: "텍스처 %d² · 관측 %.0f%% · 대칭 %.0f%% · 나머지 평탄화%@ · %.1f s",
-                                        image.width, q.observedRatio * 100, q.mirroredRatio * 100, warn, q.buildSeconds)
+                textureSummary = String(format: "텍스처 %d² · 관측 %.0f%% · 대칭 %.0f%% · 채움 %.0f%% · 접합 %.1f/255%@ · %.1f s",
+                                        image.width, q.observedRatio * 100, q.mirroredRatio * 100, q.filledRatio * 100, q.seamDelta, warn, q.buildSeconds)
             } else {
                 textureSummary = "텍스처 \(image.width)²"
             }
@@ -423,6 +461,44 @@ final class AppModel {
 
     /// 선택 클립 데이터 (기본 템플릿 클립 → 없으면 절차적).
     func clip(named name: String) -> SampledClip { clips.first { $0.name == name } ?? SyntheticClips.make(name) }
+
+    /// 텍스처만 다시 만든다 (2k/4k · 탈조명 강도 변경 후). 피팅 결과는 그대로.
+    @discardableResult
+    func rebuildTexture() async -> String? {
+        guard !isFitting, let identity, let url = lastCaptureURL else { return nil }
+        isFitting = true
+        defer { isFitting = false; buildStage = nil }
+        let template = self.template
+        var o = TextureBuildOptions.preset(size: albedoSize)
+        o.delight = delightStrength
+        let progress: TextureProgress = { [weak self] stage, f in
+            Task { @MainActor in self?.buildStage = stage.title; self?.buildProgress = (Double(stage.rawValue) + f) / Double(TextureStage.allCases.count) }
+        }
+        do {
+            let r: TextureBuildResult = try await Task.detached(priority: .userInitiated) {
+                let bundle = try CaptureBundleStore.readArchive(url)
+                let aligns = FaceFitter.alignments(bundle: bundle, template: template)
+                return try TextureBuilder.build(bundle: bundle, template: template, identity: identity, alignments: aligns, options: o, progress: progress)
+            }.value
+            lastAlbedo = r.albedo; lastMask = r.mask; lastTextureQuality = r.quality; savedPersonaURL = nil
+            applyAlbedo(r.albedo, quality: r.quality)
+            textureSummary = r.summary
+            log("텍스처 재빌드: " + r.summary)
+            return r.summary
+        } catch {
+            loadError = "텍스처 재빌드 실패: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+            return loadError
+        }
+    }
+
+    /// 피팅 결과를 버리고 템플릿 원본으로 (미리보기 패널 "템플릿 원본으로").
+    func resetToTemplate() {
+        identity = Identity.fromTemplate(template)
+        fitSummary = nil
+        albedoTexture = nil; textureSummary = nil; albedoPreview = nil
+        lastAlbedo = nil; lastMask = nil; lastTextureQuality = nil; savedPersonaURL = nil
+        smileCheck = nil
+    }
 
     /// 합성 템플릿 + 선택 사항 섭동으로 Identity 재설정.
     func applyFixture(perturbed: Bool) {

@@ -4,7 +4,7 @@
 블렌더 흉상 템플릿이 기하의 진실이고, iPhone(TrueDepth) 캡처는 "내 얼굴의 형상 차이 + 텍스처"만 공급한다. 완성된 페르소나는 ARKit 52 표정과 프리비즈 클립으로 움직이고 [소반](https://github.com/)(두레반 모임 앱)에 그대로 공급된다.
 
 > 상태: **엔드투엔드 완성** — iPhone 으로 5컷 찍어 Vision Pro 로 보내면 **내 얼굴 흉상**이 선다.
-> M1(템플릿)·M2(캡처) 완료, M6 전송과 M4 텍스처 1차 동작. 블렌더 템플릿 검증기 **오류 0 · 경고 0**, 테스트 59개.
+> M1(템플릿)·M2(캡처)·M3(피팅)·M4(텍스처) 완료, M6 전송·저장 동작. 블렌더 템플릿 검증기 **오류 0 · 경고 0**, 테스트 75개.
 > 실기기 확인: iPhone 16(전면 TrueDepth) 가이드 캡처 · Mac 사진 폴백 · Vision Pro 수신·피팅·텍스처·90 fps.
 
 ## 완성된 모습 — Vision Pro 실기기
@@ -48,7 +48,7 @@ iPhone 16 전면 TrueDepth 로 5컷을 찍어 Vision Pro 로 보내고, 그 자�
 |---|---|---|---|---|
 | `LowLevelDeformation (GPU)` | 0.09 ms | 11.1 ms · 90 fps | 패치 RMS 0.71–0.96 mm | 78–83 % |
 
-M5 성능 예산(GPU 변형 < 1 ms, 90 Hz)을 M1 코드가 이미 만족한다. 텍스처는 CPU 참조 구현이라 접합과 탈조명이 아직 거칠다 — 관측 밖(뒤통수·어깨 안쪽)은 평균 피부색으로 평탄화한다. 제대로 된 품질은 M4 본편(템플릿 알베도 합성 · Metal 커널 · 접합 색 보정 · 탈조명, 목표 PSNR 32 dB).
+M5 성능 예산(GPU 변형 < 1 ms, 90 Hz)을 M1 코드가 이미 만족한다. 위 스크린샷의 텍스처는 M4 1차(512² CPU 투영기)이고, 18차의 `TextureBuilder`(2k, Metal 1.0 s, 접합 보정·탈조명·채움·필터)는 🧪 실기기 스크린샷 갱신 전이다.
 
 **텍스처를 맞추기까지** — 좌표 규약을 세 번 틀렸고 매번 **실제 데이터를 찍어** 바로잡았다.
 ① 투영 회전(intrinsics 와 카메라가 180° 어긋남) → 정점 오버레이가 턱 아래로.
@@ -56,7 +56,7 @@ M5 성능 예산(GPU 변형 < 1 ms, 90 Hz)을 M1 코드가 이미 만족한다. 
 ③ **세로축** — 얼굴 UV 는 v 가 작아(코끝 0.260 · 턱 0.050) 알베도 **아래쪽**에 찍힌다. 뒤집어 올렸더니 얼굴 색이 어깨로 내려갔다. 기본값을 "반전 없음" 으로.
 `swift run chosang-validate --texture <번들> <out.png>` 로 실기기 왕복 없이 알베도와 랜드마크 UV 를 확인한다.
 
-**번들** — 두 경로 모두 `Documents/Captures/<uuid>/`(meta.json · shot-*.jpg · depth-*.f32 · thumb-*.jpg)에 저장하고 "내보내기" 로 `.chosangcapture`(zip)를 공유한다. 밀집 피팅(`FaceFitter`)은 희소 번들을 한국어 사유로 거부하며, 희소 피팅은 M3 T-306.
+**번들** — 두 경로 모두 `Documents/Captures/<uuid>/`(meta.json · shot-*.jpg · depth-*.f32 · thumb-*.jpg)에 저장하고 "내보내기" 로 `.chosangcapture`(zip)를 공유한다. `FaceFitter` 가 ARKit 번들은 밀집 피팅으로, 희소 번들은 `SparseFitter`(M3 T-306, 눈 간격 대비 비율만 복원)로 보낸다.
 
 **주고받기 — Bonjour `_chosang._tcp` + TLS PSK 6자리 (M6 T-603)**
 
@@ -144,13 +144,13 @@ Chosang/               앱 타깃 Chosang (번들 com.coulson.Chosang, 구 MyApp
   Resources/Templates/Legacy/   소반 USDZ(임시 템플릿)
 ChosangKit/            로컬 Swift Package
   ChosangCore          모델(BustTemplate·CaptureBundle·Identity·SampledClip·manifest)·포맷(bust.mesh·identity.bin)·수학(Procrustes·RBF·TPS)·합성 템플릿/클립
-  ChosangFit           FaceFitter(정렬·중립화·패치 치환·두상 전파)·AppearanceHints(FoundationModels)
-  ChosangTexture       CPU 래스터라이저·합성 캡처 번들·CPU 투영 텍스처·CaptureTexturing(실제 캡처 → 알베도)
+  ChosangFit           FaceFitter(FacePatchSolver·HeadPropagator·SilhouetteFitter·DeltaCalibrator·SparseFitter)·AppearanceHints(FoundationModels)
+  ChosangTexture       TextureBuilder(5단계: 래스터·투영/접합·누적·채움·마무리)·Shaders/TextureKernels.metal + MetalTextureBackend·TextureLighting(조명 추정)·TextureSeams·TextureFill·SmileVerification·CPU 래스터라이저·합성 캡처 번들
   ChosangRig           TemplateLoader(USDZ)·BustEntity(LowLevelMesh + LowLevelDeformation/CPU)·FaceRig·ClipPlayer
   ChosangCapture       FaceCaptureSession(iPhone ARKit, 미리보기+정점 투영)·PhotoCaptureSession(Mac·폴백: AVCapture + Vision 76점)·CaptureGuide(5컷 상태 기계)·FacePoseConvention(자세 부호 규약)·SpeechGuide(음성 안내)·MicLevelMeter
   ChosangIO            .chosang 패키지·캡처 번들·ZipArchive·PNG/JPEG·USD 내보내기·ChosangTransfer(Bonjour + TLS PSK 전송)
   ChosangValidate      템플릿·클립 계약 검사 (+ `chosang-validate` CLI)
-  Tests/               Swift Testing — 셀프 피팅·텍스처·검증기·포맷 왕복·희소 캡처 기하·캡처 가이드·포트레이트 회전·얼굴 자세(실측)·전송·캡처 텍스처링·알베도 평탄화·코너 UV·세로축 규약 (59 테스트)
+  Tests/               Swift Testing — 셀프 피팅·텍스처·검증기·포맷 왕복·희소 캡처 기하·캡처 가이드·포트레이트 회전·얼굴 자세(실측)·전송·캡처 텍스처링·알베도 평탄화·코너 UV·세로축 규약·M3 피팅(구 피팅·CG·눈꺼풀 링·실루엣·jawOpen·희소·미소 렌더·ARKit 이름)·M4 텍스처(PSNR·조명 추정·접합·탈조명 0·대칭·Metal 패리티) (75 테스트)
 tools/blender/export_chosang.py   블렌더 내보내기 (Template.usdz · library/*.usdz · bust.mesh v2 · template.json · library.json · clips · textures · source)
 tools/make_default_template.sh    Template 폴더 → 앱 번들용 Default.chosangtemplate (stored zip)
 Chosang_Blender/                  블렌더 작업 파일(.blend, LFS)·결정적 빌드 스크립트·텍스처·Apple OBJ(+라이선스)·Template/ 산출물(usdz 제외)
@@ -172,7 +172,8 @@ swift run chosang-validate --synthetic /tmp/ChosangTemplate                 # �
 ../tools/make_default_template.sh ~/Desktop/Chosang_Blender/Template         # 앱 번들 갱신
 swift run chosang-validate --list-legacy-failures                # 소반 USDZ 로 실패하는 항목 = 블렌더 작업 우선순위
 swift run chosang-validate --make-fixture ../Fixtures/x.chosangcapture [perturbed]
-swift run chosang-validate --texture <번들.chosangcapture> /tmp/albedo.png 512   # 실제 캡처 → 피팅 + 알베도 PNG (텍스처 디버깅)
+swift run -c release chosang-validate --texture <번들.chosangcapture> /tmp/albedo.png 2048   # 피팅 + M4 텍스처 빌더(Metal) → 알베도·마스크 PNG, 단계별 시간 ([4096] [delight=0.5] [cpu=1] [probe=u,v])
+swift run -c release chosang-validate --fit <번들.chosangcapture> /tmp/smile.png   # M3 피팅 품질 전부 + 실루엣·깊이 정합 진단 + 미소 검증(사진 | 렌더) PNG
 
 # 앱 (Xcode 에서 Chosang 스킴). 시뮬레이터 자동 실행 인자:
 #   template=default|synthetic|legacy  clip=<idle_breathe|…|bow>  tab=preview|capture|validate|spikes|receive  fixture=perturbed  report=1  sheet=1  previz=1  camera=1  receive=1  browse=1
@@ -209,6 +210,8 @@ flowchart LR
 - 2차 계약 검증기(규칙 40여 개, 한국어 수정 문장, `--with-usdz`), 내보내기 스크립트(헤드리스 4.5 s), 셰이프 시트, 프리비즈 카메라 프리셋.
 - **가이드 캡처(T-201~T-204)** — 5컷 상태 기계(`CaptureGuide`: 게이트 0.7초 유지 → 자동 촬영, 건너뛰기, 재촬영), iPhone 전체 화면 UI(각도 링·단계 칩 썸네일·조도 배너·음성 안내), 번들 저장·썸네일·`.chosangcapture` 내보내기. ARKit·사진 폴백 공용.
 - **엔드투엔드** — 캡처 번들에서 "흉상 만들기" → 밀집 피팅(실측 패치 RMS **0.71–0.96 mm**) → 512² 알베도 투영(관측 **78–83 %**) → 미리보기, `.chosang` 으로 저장·공유. 받은 번들·같은 기기 번들 모두 가능하고, "템플릿 원본으로" 로 즉시 비교한다.
+- **M4 텍스처** — `TextureBuilder` 5단계(기하 · 투영·접합 · 누적 · 채움 · 마무리): 깊이→메시 정합·자기 가림 가시성, 32×32 접합 게인, 얼굴에서 추정한 조명으로 탈조명(슬라이더), 대칭 복사·두피 머리카락색·pull-push, 양방향 필터, 2k/4k·진행률. Metal 커널(CPU 와 비트 패리티). 실기기 2k **1.0 s**, 합성 PSNR **37 dB**.
+- **M3 피팅** — 패치 솔버(눈꺼풀 링 눈알 추정) → 두상 전파 → **실루엣 맞춤**(깊이 포인트 클라우드, 법선 일치·접선 고정·깊이→메시 정합, 실측 잔차 중앙값 1.6 mm) → **jawOpen 진폭 보정**(미소 컷) → 미소 검증 렌더(패널에 사진 | 렌더). 사진만 있는 번들은 **희소 피팅**(랜드마크 8점, 3D TPS). identity.bin v2.
 - **주고받기(T-603)** — Bonjour `_chosang._tcp` 광고·검색, TLS PSK 6자리 코드, 64 KB 청크·진행률, `Documents/Received/` 저장, 받은 페르소나를 미리보기에 적용. Mac 루프백 실측 통과.
 - **파일 경로(T-604)** — 파일 앱 › 나의 기기 › 초상 에서 `Captures/`·`Received/` 가 그대로 보인다. AirDrop·파일 앱·공유 시트로 넘어온 `.chosang`/`.chosangcapture` 는 `onOpenURL` 이 받아 바로 열고, 받기 화면의 "파일에서 불러오기" 로도 연다.
 - **사진 폴백 캡처(T-205)** — Mac 내장 카메라·사진 파일·TrueDepth 없는 iPhone: Vision 76점(revision 3 고정) + 자세 → 핵심점(좌/우는 이미지 x 로 결정)·가정 FOV intrinsics·눈 간격 기반 얼굴 변환 추정, 8프레임 평균, 5컷 게이트(각도·밝기·얼굴 폭). `CaptureShotMeta` 에 `landmarks2D`·`keyPoints2D`·`faceBox`·`poseEstimate`·`intrinsicsEstimated` 추가(옛 번들 호환). 기하는 `SparseFaceGeometry`(Core, 테스트 5개).
@@ -233,8 +236,8 @@ flowchart LR
 
 | 마일스톤 | 남은 일 |
 |---|---|
-| **M3 피팅** | 실루엣 맞춤(T-303), jawOpen 진폭 보정, 사진 폴백용 **희소 피팅**(T-306 — 지금은 `FitError.sparseBundle` 로 거부) |
-| **M4 텍스처** | 템플릿 알베도를 베이스로 합성, Metal 커널, 접합 색 보정(T-403), 탈조명(T-404) — 목표 PSNR 32 dB (현재 CPU 참조 24 dB 급) |
+| **M3 피팅** | ✅ 코드 완료. 🧪 좌우 셰이프가 담긴 재촬영 번들로 미소 검증·jawOpen·실루엣 수치 확정, 실기기 픽스처 3세트(T-207) |
+| **M4 텍스처** | ✅ 코드 완료(합성 37 dB, 실기기 2k 1.0 s). 🧪 iPhone 빌드 시간·메모리(T-409), 눈 흰자·치아 명도 맞춤은 M5 라이브러리 때 |
 | **M5 런타임** | 머리카락·안경 라이브러리 선택, 흉상 2개 동시, 라이브 표정 |
 | **M6 나머지** | `.sobanpersona` 어댑터(T-605), USDZ 내보내기(T-606), 소반 통합(T-607) |
 

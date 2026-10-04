@@ -130,3 +130,4 @@ T-004 재확인(Template.usdz, RealityKit 27): Bust 파트 11,931 정점(솔기 
 2. (선택) 랜드마크 `brow_inner_left/right` 를 `chosang_landmarks` 에 추가 — 없으면 앱이 눈 위 1.5 cm 로 추정한다.
 3. 후속 과제로 기록만: 셰이프키 절차적 1차본(funnel·pucker·press 는 정면 변화 작음 → 아티스트 손질), 패치 위쪽(이마 끝) 이음 능선, 수염 셸 경계 계단. 귀는 v2 반영(윤곽 스플라인·돌출각 13°→19°→22°·귀뿌리 4 mm, 위상 동일) — 연골 주름만 후속.
 4. 바꾸지 않아도 되는 것: `_QA_*`·`_Ref_Soban` 컬렉션(스크립트가 무시), Mouth_Inner 셰이프 USD 이름 접미 숫자(앱이 처리), 이미지 데이터블록 중복(`T_*.001`, 같은 파일).
+5. (M3, 2026-10-04) **셰이프키 ↔ ARKit 실측 비교 도구가 생겼다**: `swift run -c release chosang-validate --fit <번들.chosangcapture> /tmp/smile.png` 가 미소 컷의 ARKit 가중치를 그대로 넣은 렌더를 사진과 나란히 뽑고, "미소 잔차(변형 패치 vs ARKit 메시)" 와 "표정 없이" 잔차를 함께 찍는다. **잔차가 '표정 없이' 보다 크면 그 셰이프키가 ARKit 과 다르다는 뜻**이라 손질 우선순위가 된다. 첫 실기기 번들은 좌우 셰이프가 0 으로 저장된(앱 버그, 수정됨) 것이라 `mouthShrugLower/Upper` 만 비교됐다(6.83 vs 6.89 mm — 거의 효과 없음 → shrug 두 키부터 의심). 좌우 셰이프가 담긴 번들로 다시 재면 미소(`mouthSmile_L/R`)·`jawOpen`(진폭 비율도 찍힌다) 순으로 본다.

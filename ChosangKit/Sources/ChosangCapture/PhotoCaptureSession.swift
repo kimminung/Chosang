@@ -36,12 +36,13 @@ public struct PhotoFrameStatus: Sendable, Equatable {
 
 /// 희소 캡처 게이트.
 public struct PhotoCaptureGate: Sendable, Equatable {
-    public var yawTolerance: Float = 8
-    public var pitchTolerance: Float = 7
+    /// ARKit 경로(`CaptureGate`)와 같은 이유로 19차에 ±8/±7 → ±12/±10 (Vision 자세는 ARKit 보다 노이즈가 커 조금 더 좁게 둔다).
+    public var yawTolerance: Float = 12
+    public var pitchTolerance: Float = 10
     public var brightnessRange: ClosedRange<Float> = 0.22...0.85
     public var minFaceWidthRatio: Float = 0.16
     public var framesToAverage = 8
-    public var holdSeconds: Double = 0.7
+    public var holdSeconds: Double = 0.5
     public init() {}
 }
 

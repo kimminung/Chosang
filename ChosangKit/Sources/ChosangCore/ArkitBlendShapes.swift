@@ -32,6 +32,26 @@ public enum ArkitShape: String, CaseIterable, Codable, Sendable {
     private static let indexByCase: [ArkitShape: Int] = Dictionary(uniqueKeysWithValues: allCases.enumerated().map { ($1, $0) })
     public static let count = allCases.count   // 52
 
+    /// ARKit 이름 어느 표기든 받는다: 우리 rawValue(`mouthSmileLeft`) **또는 `ARFaceAnchor.BlendShapeLocation.rawValue`(`mouthSmile_L`)**.
+    /// ARKit 의 실제 문자열은 좌우 셰이프 28개가 `_L`/`_R` 접미사다 — rawValue 로만 받던 M2 캡처는 이 28개를 **조용히 0 으로** 저장했다
+    /// (실기기 번들: 깜빡임·미소까지 전부 0, `mouthShrug`·`jawOpen` 같은 비대칭 셰이프만 남음). M3 에서 발견·수정.
+    public init?(arkitName: String) {
+        if let s = ArkitShape(rawValue: arkitName) { self = s; return }
+        if arkitName.hasSuffix("_L"), let s = ArkitShape(rawValue: String(arkitName.dropLast(2)) + "Left") { self = s; return }
+        if arkitName.hasSuffix("_R"), let s = ArkitShape(rawValue: String(arkitName.dropLast(2)) + "Right") { self = s; return }
+        return nil
+    }
+    /// `ARFaceAnchor.BlendShapeLocation` 표기: 좌우 쌍 36개는 `_L`/`_R`, 단 `jawLeft/jawRight/mouthLeft/mouthRight`(턱·입 **방향**)는 ARKit 도 그대로 쓴다.
+    public var arkitLocationName: String {
+        switch self {
+        case .jawLeft, .jawRight, .mouthLeft, .mouthRight: return rawValue
+        default:
+            if rawValue.hasSuffix("Left") { return String(rawValue.dropLast(4)) + "_L" }
+            if rawValue.hasSuffix("Right") { return String(rawValue.dropLast(5)) + "_R" }
+            return rawValue
+        }
+    }
+
     /// 립싱크 최소 세트 (Blender-요청.md §2).
     public static let lipSyncMinimum: [ArkitShape] = [.jawOpen, .mouthClose, .mouthFunnel, .mouthPucker, .mouthStretchLeft, .mouthStretchRight,
                                                       .mouthLowerDownLeft, .mouthLowerDownRight, .mouthPressLeft, .mouthPressRight,
@@ -71,10 +91,10 @@ public struct ArkitWeights: Hashable, Sendable, Codable {
         self.init()
         for (k, v) in dict { values[k.index] = v }
     }
-    /// ARKit 이름 문자열 사전에서 (ARFaceAnchor.blendShapes, 클립 JSON 등).
+    /// ARKit 이름 문자열 사전에서 (ARFaceAnchor.blendShapes, 클립 JSON 등). `mouthSmileLeft` 와 `mouthSmile_L` 둘 다 받는다.
     public init(named dict: [String: Float]) {
         self.init()
-        for (name, v) in dict { if let s = ArkitShape(rawValue: name) { values[s.index] = v } }
+        for (name, v) in dict { if let s = ArkitShape(arkitName: name) { values[s.index] = v } }
     }
     /// 52개 배열에서 (길이가 다르면 앞에서부터 채우고 나머지는 0).
     public init(values: [Float]) {

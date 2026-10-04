@@ -133,10 +133,27 @@ struct PreviewScreen: View {
                             Divider()
                             Label("내 흉상 (피팅됨)", systemImage: "person.crop.circle.badge.checkmark").font(.caption.bold()).foregroundStyle(.green)
                             Text(fit).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                            if let stage = model.buildStage {
+                                // M4 T-407 빌드 진행률 (5단계)
+                                ProgressView(value: model.buildProgress) { Text("텍스처 · \(stage)").font(.caption2) }
+                            }
                             if let tex = model.textureSummary {
                                 Text(tex).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
                                 Toggle("내 피부 텍스처", isOn: $model.useAlbedo).font(.caption)
                                 Toggle("알베도 상하 반전", isOn: $model.flipAlbedoV).font(.caption)
+                                // 텍스처 설정 (T-404 탈조명 슬라이더 · T-407 2k/4k) — 바꾼 뒤 다시 만들기
+                                HStack {
+                                    Text("탈조명").font(.caption)
+                                    Slider(value: $model.delightStrength, in: 0...1)
+                                    Text(String(format: "%.2f", model.delightStrength)).font(.caption2.monospacedDigit()).frame(width: 34)
+                                }
+                                HStack {
+                                    Picker("크기", selection: $model.albedoSize) { Text("2k").tag(2048); Text("4k").tag(4096) }
+                                        .pickerStyle(.segmented).frame(width: 110)
+                                    Button(model.isFitting ? "만드는 중…" : "텍스처 다시 만들기") { Task { await model.rebuildTexture() } }
+                                        .disabled(model.isFitting || model.lastCaptureURL == nil)
+                                }
+                                .font(.caption)
                                 if let preview = model.albedoPreview {
                                     // UV 레이아웃을 눈으로 확인 — 얼굴이 제 위치에 찍혔는지 바로 보인다
                                     Image(decorative: preview, scale: 1).resizable().aspectRatio(1, contentMode: .fit)
@@ -144,14 +161,19 @@ struct PreviewScreen: View {
                                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)))
                                 }
                             }
-                            HStack {
-                                Button("템플릿 원본으로") {
-                                    model.identity = Identity.fromTemplate(model.template)
-                                    model.fitSummary = nil
-                                    model.albedoTexture = nil
-                                    model.textureSummary = nil
-                                    model.lastAlbedo = nil; model.lastMask = nil; model.savedPersonaURL = nil
+                            if let sc = model.smileCheck {
+                                // T-308 미소 검증: 미소 컷의 ARKit 가중치를 그대로 넣어 같은 카메라로 렌더 — 사진과 입꼬리·눈이 겹쳐야 한다
+                                Text("미소 검증 (사진 | 캡처 가중치 렌더)").font(.caption.bold())
+                                HStack(spacing: 4) {
+                                    Image(decorative: sc.photo, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                                    Image(decorative: sc.render, scale: 1).resizable().aspectRatio(contentMode: .fit)
                                 }
+                                .frame(maxHeight: 220)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                Text(sc.caption).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
+                            HStack {
+                                Button("템플릿 원본으로") { model.resetToTemplate() }
                                 if let url = model.savedPersonaURL {
                                     ShareLink(item: url) { Text("내보내기") }
                                 } else {
@@ -274,15 +296,35 @@ struct PhonePreviewScreen: View {
                             }
                             .disabled(model.isFitting)
                         }
+                        if let stage = model.buildStage {
+                            ProgressView(value: model.buildProgress) { Text("텍스처 · \(stage)").font(.caption) }
+                        }
                         if let fit = model.fitSummary {
                             Text(fit).font(.caption)
                             if let tex = model.textureSummary { Text(tex).font(.caption) }
                             Toggle("내 피부 텍스처", isOn: $model.useAlbedo)
                             Toggle("알베도 상하 반전", isOn: $model.flipAlbedoV)
-                            Button("템플릿 원본으로") {
-                                model.identity = Identity.fromTemplate(model.template)
-                                model.fitSummary = nil; model.albedoTexture = nil; model.textureSummary = nil
+                            HStack {
+                                Text("탈조명")
+                                Slider(value: $model.delightStrength, in: 0...1)
+                                Text(String(format: "%.2f", model.delightStrength)).font(.caption.monospacedDigit())
                             }
+                            Picker("알베도 크기", selection: $model.albedoSize) { Text("2k").tag(2048); Text("4k").tag(4096) }
+                            Button(model.isFitting ? "만드는 중…" : "텍스처 다시 만들기") { Task { await model.rebuildTexture() } }
+                                .disabled(model.isFitting || model.lastCaptureURL == nil)
+                            if let sc = model.smileCheck {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("미소 검증 (사진 | 캡처 가중치 렌더)").font(.caption.bold())
+                                    HStack(spacing: 4) {
+                                        Image(decorative: sc.photo, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                                        Image(decorative: sc.render, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                                    }
+                                    .frame(maxHeight: 240)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    Text(sc.caption).font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            Button("템플릿 원본으로") { model.resetToTemplate() }
                         }
                         if model.fitSummary == nil && model.latestLocalCapture == nil {
                             Text("캡처 탭에서 5컷을 찍고 번들을 저장하면 여기서 바로 만들 수 있습니다").font(.caption).foregroundStyle(.secondary)

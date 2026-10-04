@@ -102,14 +102,17 @@ struct SelfFitTests {
         let bundle = SyntheticCapture.makeBundle(template: t, options: opt)
         var po = TextureProjectionOptions()
         po.size = 256
-        let mouthUV = t.uvs[t.manifest.landmark(.lipUpperMid)!]
-        let res = CPUTextureProjector.project(positions: t.positions, normals: t.normals, uvs: t.uvs, indices: t.indices,
-                                              shots: bundle.shots, symmetryMap: t.manifest.symmetryMap, mouthUVCenter: mouthUV, options: po)
+        // 합성 캡처는 렌더 메시(코너 UV)로 그려지므로 투영도 같은 메시로 (M4 에서 통일; 대칭 맵은 원본 정점 기준이라 끈다)
+        let render = t.makeRenderMesh()
+        let rPos = render.expand(t.positions)
+        let mouthUV = render.uvs[render.sourceIndex.firstIndex(of: Int32(t.manifest.landmark(.lipUpperMid)!))!]
+        let res = CPUTextureProjector.project(positions: rPos, normals: Geometry.vertexNormals(positions: rPos, indices: render.indices), uvs: render.uvs, indices: render.indices,
+                                              shots: bundle.shots, symmetryMap: [], mouthUVCenter: mouthUV, options: po)
         let truth = SyntheticAlbedo.image(size: 256)
         let psnr = CPUTextureProjector.psnr(res.albedo, truth, mask: res.mask)
         print("텍스처: 관측 \(res.quality.observedRatio * 100)% · 대칭 \(res.quality.mirroredRatio * 100)% · 채움 \(res.quality.filledRatio * 100)% · PSNR \(psnr) dB · \(res.quality.buildSeconds) s")
         #expect(res.quality.observedRatio > 0.3)
-        // M0 CPU 참조 구현 기준선 22 dB (1280×960 5컷, 256² → 측정 24.0 dB). T-408 의 32 dB 는 M4 Metal 커널(텍셀 footprint 적분·접합 보정)에서.
+        // M0 CPU 참조 구현 기준선 22 dB (1280×960 5컷, 256²). M4 `TextureBuilder` 는 대역 제한 알베도에서 32 dB 이상 (TextureBuilderTests).
         #expect(psnr > 22, "PSNR \(psnr)")
     }
 
@@ -120,11 +123,14 @@ struct SelfFitTests {
         opt.imageWidth = 480; opt.imageHeight = 360; opt.depthWidth = 480; opt.depthHeight = 360
         let bundle = SyntheticCapture.makeBundle(template: t, options: opt)
         let truth = SyntheticAlbedo.image(size: 256)
+        let render = t.makeRenderMesh()
+        let rPos = render.expand(t.positions), rNrm = Geometry.vertexNormals(positions: rPos, indices: render.indices)
+        let mouthUV = render.uvs[render.sourceIndex.firstIndex(of: Int32(t.manifest.landmark(.lipUpperMid)!))!]
         func run(_ kinds: [ShotKind], delight: Float, mirror: Bool = false) -> String {
             var po = TextureProjectionOptions(); po.size = 256; po.delight = delight; po.mirrorFill = mirror
             let shots = bundle.shots.filter { kinds.contains($0.kind) }
-            let r = CPUTextureProjector.project(positions: t.positions, normals: t.normals, uvs: t.uvs, indices: t.indices, shots: shots,
-                                                symmetryMap: t.manifest.symmetryMap, mouthUVCenter: t.uvs[t.manifest.landmark(.lipUpperMid)!], options: po)
+            let r = CPUTextureProjector.project(positions: rPos, normals: rNrm, uvs: render.uvs, indices: render.indices, shots: shots,
+                                                symmetryMap: [], mouthUVCenter: mouthUV, options: po)
             return String(format: "%@ delight=%.1f → 관측 %.1f%% PSNR %.1f dB", kinds.map(\.rawValue).joined(separator: "+"), delight, r.quality.observedRatio * 100, CPUTextureProjector.psnr(r.albedo, truth, mask: r.mask))
         }
         print("480×360: " + run([.front], delight: 1))
@@ -134,8 +140,8 @@ struct SelfFitTests {
         hi.imageWidth = 1280; hi.imageHeight = 960; hi.depthWidth = 640; hi.depthHeight = 480
         let hiBundle = SyntheticCapture.makeBundle(template: t, options: hi)
         var po = TextureProjectionOptions(); po.size = 256
-        let r = CPUTextureProjector.project(positions: t.positions, normals: t.normals, uvs: t.uvs, indices: t.indices, shots: hiBundle.shots,
-                                            symmetryMap: t.manifest.symmetryMap, mouthUVCenter: t.uvs[t.manifest.landmark(.lipUpperMid)!], options: po)
+        let r = CPUTextureProjector.project(positions: rPos, normals: rNrm, uvs: render.uvs, indices: render.indices, shots: hiBundle.shots,
+                                            symmetryMap: [], mouthUVCenter: mouthUV, options: po)
         print(String(format: "1280×960 5컷 → 관측 %.1f%% PSNR %.1f dB (%.2f s)", r.quality.observedRatio * 100, CPUTextureProjector.psnr(r.albedo, truth, mask: r.mask), r.quality.buildSeconds))
     }
 

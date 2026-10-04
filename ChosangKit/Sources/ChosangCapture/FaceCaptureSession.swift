@@ -59,11 +59,13 @@ public struct FaceFrameStatus: Sendable, Equatable {
 public struct CaptureGate: Sendable, Equatable {
     /// 중립도 상한. 시선·깜빡임을 뺀 합 — `ArkitWeights.neutrality`. 고개를 돌리면 ARKit 이 볼·턱을 조금씩 올려 1 근처까지 간다(실측).
     public var neutralitySumMax: Float = 1.2
-    /// 각도 허용치(도). 손으로 들고 맞추는 동작이라 1차의 ±6/±5 는 너무 좁았다(T-203 실기기) → ±9/±8.
-    public var yawTolerance: Float = 9
-    public var pitchTolerance: Float = 8
+    /// 각도 허용치(도). 손으로 들고 맞추는 동작이라 1차의 ±6/±5 는 너무 좁았다(T-203 실기기) → ±9/±8 → 19차 ±14/±12.
+    /// 피팅은 컷의 실제 자세(ARKit 변환)를 쓰므로 목표각에서 몇 도 벗어나도 품질 손실이 없고, 좌·우 30° 컷은 뺨·귀가 보이기만 하면 된다.
+    /// 사용자 피드백: "링 중앙 원에 딱 닿고 가만있어야만 인정" — 허용치와 함께 유지 시간도 0.7 → 0.5 s, 순간 이탈은 `CaptureGuide` 유예로 흡수.
+    public var yawTolerance: Float = 14
+    public var pitchTolerance: Float = 12
     public var lumensRange: ClosedRange<Float> = 250...2000
-    public var holdSeconds: Double = 0.7
+    public var holdSeconds: Double = 0.5
     public var framesToAverage = 8
     public init() {}
 }

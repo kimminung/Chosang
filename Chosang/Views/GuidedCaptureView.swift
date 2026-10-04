@@ -35,6 +35,8 @@ protocol GuidedCaptureSource: AnyObject, Observable {
     /// 미리보기 픽셀 좌표의 오버레이 점
     var previewPoints: [SIMD2<Float>] { get }
     var holdSeconds: Double { get }
+    /// 게이트 각도 허용치(도) — 링의 목표 영역 크기
+    var angleTolerance: (yaw: Float, pitch: Float) { get }
     /// 조도·거리 경고 (없으면 nil)
     var lightWarning: String? { get }
     var summaryLine: String { get }
@@ -225,6 +227,7 @@ struct GuidedCaptureView<Source: GuidedCaptureSource>: View {
     }
 
     /// 목표(yaw·pitch) 중심의 링. 점 = 현재 자세 오프셋(거울이면 좌우 반전), 바깥 호 = 게이트 유지 진행률.
+    /// 안쪽 점선 타원 = **실제 게이트 허용치**(yaw ±14° · pitch ±12°) — 점이 그 안에 들어가면 통과한다(전에는 고정 36 pt 라 허용치보다 작게 보였다).
     private func angleRing(for kind: ShotKind) -> some View {
         let (ty, tp) = kind.targetYawPitch
         let maxDeg: Float = 25
@@ -232,9 +235,12 @@ struct GuidedCaptureView<Source: GuidedCaptureSource>: View {
         let dx = CGFloat(max(-1, min(1, (source.yaw - ty) / maxDeg))) * R * (mirror ? -1 : 1)
         let dy = CGFloat(max(-1, min(1, -(source.pitch - tp) / maxDeg))) * R
         let ok = source.passesGate(for: kind).ok
+        let tol = source.angleTolerance
+        let zoneW = CGFloat(min(1, tol.yaw / maxDeg)) * R * 2, zoneH = CGFloat(min(1, tol.pitch / maxDeg)) * R * 2
         return ZStack {
             Circle().stroke(.white.opacity(0.35), lineWidth: 2).frame(width: R * 2, height: R * 2)
-            Circle().stroke(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 4])).frame(width: 36, height: 36)
+            Ellipse().fill((ok ? Color.green : Color.white).opacity(0.12)).frame(width: zoneW, height: zoneH)
+            Ellipse().stroke(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 4])).frame(width: zoneW, height: zoneH)
             Circle().trim(from: 0, to: guide.holdProgress).stroke(.green, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 .rotationEffect(.degrees(-90)).frame(width: R * 2 + 10, height: R * 2 + 10)
                 .animation(.linear(duration: 0.1), value: guide.holdProgress)
@@ -302,7 +308,7 @@ struct GuidedCaptureView<Source: GuidedCaptureSource>: View {
         VStack(spacing: 16) {
             Image(systemName: source.isSparse ? "camera.viewfinder" : "faceid").font(.system(size: 48)).foregroundStyle(.white)
             Text("내 흉상 만들기").font(.title.bold()).foregroundStyle(.white)
-            Text("정면 · 왼쪽 30° · 오른쪽 30° · 위 15° · 미소, 다섯 컷을 안내에 따라 찍습니다. 각도가 맞으면 0.7초 뒤 자동으로 촬영됩니다.")
+            Text("정면 · 왼쪽 30° · 오른쪽 30° · 위 15° · 미소, 다섯 컷을 안내에 따라 찍습니다. 점이 점선 안에 들어오면 \(String(format: "%.1f", source.holdSeconds))초 뒤 자동으로 촬영됩니다.")
                 .font(.subheadline).foregroundStyle(.white.opacity(0.85)).multilineTextAlignment(.center)
             Text(source.modeTitle).font(.caption).foregroundStyle(.white.opacity(0.7))
             if source.cameraAvailable {
@@ -488,6 +494,7 @@ extension FaceCaptureSession: GuidedCaptureSource {
     var pitch: Float { status.pitch }
     var previewImage: CGImage? { preview }
     var holdSeconds: Double { gate.holdSeconds }
+    var angleTolerance: (yaw: Float, pitch: Float) { (gate.yawTolerance, gate.pitchTolerance) }
     var summaryLine: String {
         let s = status
         return String(format: "yaw %.1f° · pitch %.1f° · 중립도 %.2f · %.0f lm · 깊이 %@", s.yaw, s.pitch, s.neutrality, s.ambientLumens, s.hasDepth ? "O" : "X")
@@ -513,6 +520,7 @@ extension PhotoCaptureSession: GuidedCaptureSource {
     var previewImage: CGImage? { preview }
     var previewPoints: [SIMD2<Float>] { previewLandmarks }
     var holdSeconds: Double { gate.holdSeconds }
+    var angleTolerance: (yaw: Float, pitch: Float) { (gate.yawTolerance, gate.pitchTolerance) }
     var summaryLine: String {
         let s = status
         return String(format: "yaw %.1f° · pitch %.1f° · roll %.1f° · 밝기 %.2f · 얼굴 폭 %.0f %% · %d×%d", s.yaw, s.pitch, s.roll, s.brightness, s.faceWidthRatio * 100, s.imageWidth, s.imageHeight)

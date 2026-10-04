@@ -14,7 +14,7 @@ visionOS 27 · iOS 26 · macOS 26 단일 앱 타깃(Xcode 프로젝트·타깃·
 - Swift 6 toolchain, Swift 5 언어 모드, 앱은 기본 MainActor 격리. Combine 금지, async/await.
 - 플랫폼 분기는 `#if os(visionOS)` / `#if os(iOS)` / `#if os(macOS)`. 순수 모델·수학(ChosangCore)은 Foundation/simd/CoreGraphics 만.
 - 모듈: Core(모델·포맷·수학) · Fit(피팅·외형 힌트) · Texture(투영·합성 캡처) · Rig(BustEntity·FaceRig·ClipPlayer) · Capture(ARKit·마이크) · IO(패키지·zip·PNG·USD) · Validate(계약 검사) + `chosang-validate` CLI.
-- Metal 커널은 각 모듈 `Shaders/` 에, Swift 래퍼는 작은 해상도로 단위 테스트. (M4 부터)
+- Metal 커널은 각 모듈 `Shaders/` 에, Swift 래퍼는 작은 해상도로 단위 테스트. SwiftPM 에서는 `.metal` 을 `resources: [.copy("Shaders")]` 로 넣고 런타임에 `makeLibrary(source:)` 로 컴파일한다(`MetalTextureBackend`; `mathMode = .safe` 로 CPU 참조와 패리티). 장치가 없으면 CPU 경로.
 - Swift Testing. 회귀 수치(RMS·잔차·관측 비율·스냅샷 차이)는 테스트가 지킨다: `cd ChosangKit && swift test`.
 - API 는 DocumentationSearch 로 확인하고 쓴다. 추측 금지. 시그니처가 애매하면 `xcrun -sdk macosx swiftc -typecheck` 프로브로 확정한다(Docs/Spikes.md 참고).
 
@@ -25,6 +25,7 @@ visionOS 27 · iOS 26 · macOS 26 단일 앱 타깃(Xcode 프로젝트·타깃·
 - Xcode 가 불안정하면(튕김) 파일 편집·빌드는 파일 도구 + `xcodebuild`/`swift test` 로. 엔타이틀먼트는 `Chosang/Chosang.entitlements`.
 - 실기기 항목은 `Docs/Tasks.md` 체크리스트로 남기고 🧪 표시.
 - 검증기: `cd ChosangKit && swift run chosang-validate <Template 폴더>` / `--synthetic <폴더>` / `--list-legacy-failures`.
+- 실제 캡처 번들 진단(저장소 밖, release 로): `swift run -c release chosang-validate --fit <번들.chosangcapture> [/tmp/smile.png]`(피팅 품질 전부 + 실루엣·깊이 정합 진단 + 미소 검증 PNG), `--texture <번들> <out.png> [크기]`(알베도 PNG). 추측 대신 이 숫자를 본다.
 
 ## 문서 갱신
 - 마일스톤마다 `Docs/TechPRD.md` 에 "N차" 절 추가(소반 형식), `Docs/Tasks.md` 상태 갱신, 계약 변경은 `Docs/Blender-요청.md` 에 이유와 함께.

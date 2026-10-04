@@ -2,12 +2,15 @@
 //  FaceFitter.swift
 //  ChosangFit
 //
-//  캡처 번들 → Identity (TechPRD §6.4). M0 범위: 정렬·중립화·컷 평균·패치 치환·두상 전파·대칭·어깨 스케일·눈알 추정·품질 지표.
-//  M3 에서 추가: 실루엣 맞춤(SilhouetteFitter), jawOpen 진폭 보정, 희소 폴백(SparseFitter).
+//  캡처 번들 → Identity (TechPRD §6.4). 단계:
+//   1–2. `FacePatchSolver` — 정렬·중립화·컷 평균·스케일 s·눈알(눈꺼풀 링)           (T-301 · T-302)
+//   3.   `HeadPropagator`  — 패치 치환 + 전역 유사변환 + 국소 잔차 RBF(바이하모닉 r³) × 경계 감쇠 + 목 감쇠 + 어깨 스케일 + 대칭  (T-303)
+//   4.   `SilhouetteFitter` — 깊이 포인트 클라우드로 두상·귀·턱 밑 정점을 법선 방향으로 당김 (≤ 12 mm, GN 5회, 라플라시안 λ 0.1)   (T-304)
+//   5.   `DeltaCalibrator` — jawOpen 진폭(미소 컷), 미소 검증 잔차                     (T-305 · T-308)
+//   희소 번들(사진만)은 `SparseFitter` 로 간다                                          (T-306)
 //
-//  좌표 규약: 사용자 패치는 **눈 중심(안·바깥 꼬리 평균)의 중점이 템플릿 눈 중점에 오도록** 강체 정렬한다(치수는 사용자 것 유지).
-//  두상 전파 = 전역 유사변환(패치 Procrustes, 스케일 포함) + 국소 잔차 RBF(바이하모닉 r³) × 경계 거리 감쇠(σ, 기본 5 cm).
-//  — r³ 커널은 멀리서 선형으로 자라 뒤통수를 망치므로 잔차만 전파하고 감쇠한다(1차 측정: 감쇠 없이 중앙값 6 mm → 아래 테스트 참고).
+//  두상 전파 = 전역 유사변환(패치 Procrustes, 스케일 포함) + 국소 잔차 RBF × 경계 거리 감쇠(σ, 기본 5 cm).
+//  — r³ 커널은 멀리서 선형으로 자라 뒤통수를 망치므로 잔차만 전파하고 감쇠한다(1차 측정: 감쇠 없이 중앙값 6 mm).
 //
 
 import Foundation
@@ -26,6 +29,10 @@ public struct FitOptions: Sendable, Equatable {
     /// 국소 잔차 전파의 경계 거리 감쇠 σ (m). 0 이면 감쇠 없음(순수 RBF 외삽).
     public var propagationFalloff: Float = 0.05
     public var rbfLambda: Double = 0
+    /// T-304 실루엣 맞춤
+    public var silhouette = SilhouetteOptions()
+    /// T-305 jawOpen 진폭 보정 (미소 컷)
+    public var calibrateJawOpen = true
     public init() {}
 }
 
@@ -35,126 +42,89 @@ public enum FitError: Error, LocalizedError {
     case procrustesFailed(ShotKind)
     case rbfFailed
     case sparseBundle
+    case sparseInsufficientLandmarks(Int)
     public var errorDescription: String? {
         switch self {
         case .noNeutralShots: "중립 컷이 없습니다 (정면·좌·우·위 중 하나 이상 필요)"
         case .vertexCountMismatch(let e, let g): "얼굴 정점 수가 다릅니다 (템플릿 \(e), 캡처 \(g))"
         case .procrustesFailed(let k): "\(k.title) 컷 정합에 실패했습니다"
         case .rbfFailed: "두상 전파(RBF) 풀이에 실패했습니다"
-        case .sparseBundle: "사진만으로 만든 희소 번들(sparse)입니다 — ARKit 1220 정점이 없어 밀집 피팅을 할 수 없습니다. 희소 피팅(T-306, Vision 76 ↔ template.json 랜드마크)은 M3 에서 지원합니다"
+        case .sparseBundle: "사진만으로 만든 희소 번들(sparse)입니다 — ARKit 1220 정점이 없어 밀집 피팅을 할 수 없습니다"
+        case .sparseInsufficientLandmarks(let n): "희소 피팅에 필요한 랜드마크가 부족합니다 (\(n)개, 눈 꼬리 4 + 코끝·입꼬리·턱 중 \(SparseFitter.minLandmarks)개 이상 필요)"
         }
     }
 }
 
 public enum FaceFitter {
-    /// 번들 전체 피팅.
+    /// 번들 전체 피팅. 희소 번들(사진 폴백)은 `SparseFitter` 로 간다.
     public static func fit(bundle: CaptureBundle, template t: BustTemplate, options: FitOptions = FitOptions()) throws -> Identity {
+        if bundle.meta.sparse || (!bundle.shots.isEmpty && bundle.shots.allSatisfy({ $0.meta.isSparse })) {
+            return try SparseFitter.fit(bundle: bundle, template: t, options: options)
+        }
         let start = Date()
-        let pc = t.patchCount
-        let templatePatch = Array(t.patchPositions)
-        let shots = bundle.neutralShots
-        guard !shots.isEmpty else { throw FitError.noNeutralShots }
-        guard !bundle.meta.sparse, !shots.allSatisfy({ $0.meta.isSparse }) else { throw FitError.sparseBundle }
-        let templateAnchor = eyeMidpoint(templatePatch, manifest: t.manifest)
 
-        // 1) 컷별 정렬 + 중립화 ---------------------------------------------------------
-        var aligned: [[SIMD3<Float>]] = []
-        for shot in shots {
-            let raw = shot.meta.faceVertexArray
-            guard raw.count == pc else { throw FitError.vertexCountMismatch(expected: pc, got: raw.count) }
-            guard let T = Procrustes.fit(source: raw, target: templatePatch, allowScale: true) else { throw FitError.procrustesFailed(shot.kind) }
-            // 사용자 치수 보존: 회전만 적용. 눈 중점을 템플릿 눈 중점에 맞춘다.
-            var p = raw.map { T.rotation.act($0) }
-            let anchor = eyeMidpoint(p, manifest: t.manifest)
-            let shift = templateAnchor - anchor
-            for i in p.indices { p[i] += shift }
-            // 표정 제거: 템플릿 델타 × 그 컷의 가중치
-            for (shape, deltas) in t.shapeDeltas {
-                let w = shot.meta.blendShapes[shape]
-                guard w > 1e-4, deltas.count >= pc else { continue }
-                for i in 0..<pc { p[i] -= deltas[i] * w }
+        // 1–2) 패치
+        let patch = try FacePatchSolver.solve(bundle: bundle, template: t)
+
+        // 3) 패치 치환 + 두상 전파
+        var (positions, lambda, pivot) = try HeadPropagator.propagate(template: t, userPatch: patch.userPatch, scale: patch.scale, options: options)
+
+        // 4) 실루엣
+        var silhouette: SilhouetteResult? = nil
+        if options.silhouette.enabled {
+            silhouette = SilhouetteFitter.fit(positions: &positions, template: t, bundle: bundle, alignments: patch.alignments, options: options)
+        }
+
+        // 5) 델타 보정 (jawOpen 진폭)
+        var patchDeltas: [ArkitShape: [SIMD3<Float>]] = [:]
+        var shapeScales: [ArkitShape: Float] = [:]
+        var jaw: DeltaCalibrator.JawResult? = nil
+        if options.calibrateJawOpen, let j = DeltaCalibrator.jawOpen(bundle: bundle, template: t, userPatch: patch.userPatch, alignments: patch.alignments) {
+            jaw = j
+            shapeScales[.jawOpen] = j.scale
+            if let d = t.shapeDeltas[.jawOpen], d.count >= t.patchCount {
+                patchDeltas[.jawOpen] = (0..<t.patchCount).map { d[$0] * j.scale }
             }
-            aligned.append(p)
         }
 
-        // 2) 컷 평균 ---------------------------------------------------------------------
-        var userPatch = [SIMD3<Float>](repeating: .zero, count: pc)
-        for a in aligned { for i in 0..<pc { userPatch[i] += a[i] } }
-        for i in 0..<pc { userPatch[i] /= Float(aligned.count) }
-        var perShot: [String: Float] = [:]
-        var worst: Float = 0
-        for (k, a) in aligned.enumerated() {
-            let r = Geometry.rms(a, userPatch)
-            perShot[shots[k].kind.rawValue] = r
-            worst = max(worst, r)
+        var q = FitQuality(patchRMS: patch.worstRMS, patchRMSPerShot: patch.perShotRMS, silhouetteResidualMedian: silhouette?.residualMedian,
+                           rbfLambda: lambda, rbfPivotRatio: pivot, shotsUsed: patch.shotsUsed, elapsedSeconds: 0)
+        q.method = "dense"
+        q.eyeFit = patch.eyeFit
+        q.jawOpenScale = jaw?.scale
+        if let s = silhouette {
+            q.silhouetteVertices = s.matchedVertices
+            q.silhouettePoints = s.points
+            q.silhouetteResidualP90 = s.residualP90
+            if !s.depthOffsets.isEmpty { q.depthOffsetPerShot = Dictionary(uniqueKeysWithValues: s.depthOffsets.map { ($0.key.rawValue, $0.value) }) }
         }
-
-        // 3) 스케일 s = 사용자 눈 간격 / 템플릿 눈 간격 -----------------------------------
-        let s = eyeSpacing(userPatch, manifest: t.manifest) / max(1e-4, eyeSpacing(templatePatch, manifest: t.manifest))
-
-        // 4) 패치 치환 + 두상 전파 --------------------------------------------------------
-        let (positions, lambda, pivot) = try HeadPropagator.propagate(template: t, userPatch: userPatch, scale: s, options: options)
-
-        // 5) 눈알 ---------------------------------------------------------------------------
-        let eyeR = t.manifest.eyeRadius * s
-        let (eL, eR) = eyeCenters(userPatch, manifest: t.manifest, radius: eyeR,
-                                  fallbackL: SIMD3(t.manifest.eyeL[0], t.manifest.eyeL[1], t.manifest.eyeL[2]) * s,
-                                  fallbackR: SIMD3(t.manifest.eyeR[0], t.manifest.eyeR[1], t.manifest.eyeR[2]) * s)
-
-        let quality = FitQuality(patchRMS: worst, patchRMSPerShot: perShot, silhouetteResidualMedian: nil,
-                                 rbfLambda: lambda, rbfPivotRatio: pivot, shotsUsed: shots.count, elapsedSeconds: Date().timeIntervalSince(start))
-        return Identity(templateID: t.manifest.id, templateVersion: t.manifest.version, positions: positions, scale: s,
-                        eyeCenterL: eL, eyeCenterR: eR, eyeRadius: eyeR, patchDeltas: [:], quality: quality)
+        var identity = Identity(templateID: t.manifest.id, templateVersion: t.manifest.version, positions: positions, scale: patch.scale,
+                                eyeCenterL: patch.eyeCenterL, eyeCenterR: patch.eyeCenterR, eyeRadius: patch.eyeRadius,
+                                patchDeltas: patchDeltas, shapeScales: shapeScales, quality: q)
+        if let smile = DeltaCalibrator.smileResidual(bundle: bundle, template: t, identity: identity, alignments: patch.alignments) {
+            q.smileResidualRMS = smile.deformed
+            q.smileNeutralRMS = smile.neutral
+        }
+        q.elapsedSeconds = Date().timeIntervalSince(start)
+        identity.quality = q
+        return identity
     }
 
     /// 컷별 **얼굴 좌표 → 템플릿 좌표** 강체 변환 (회전 + 눈 중점 정렬 이동).
-    /// `fit` 의 1단계와 같은 계산이다. 텍스처 투영(M4)이 캡처 카메라를 템플릿 공간으로 옮길 때 쓴다 —
+    /// `fit` 의 1단계와 같은 계산이다. 텍스처 투영(M4)·미소 검증 렌더(T-308)가 캡처 카메라를 템플릿 공간으로 옮길 때 쓴다 —
     /// 캡처마다 머리 위치가 다르므로 이 변환 없이는 모든 컷이 어긋난 곳에 투영된다.
+    /// 희소(사진 폴백) 번들은 밀집 ARKit 메시가 없어 `FacePatchSolver.alignment`를 못 쓰므로 `SparseFitter`의 컷별 정렬을 쓴다 —
+    /// 미소 컷도 포함한다(모양 피팅에는 안 쓰지만 텍스처 투영에는 쓴다, `SparseFitter.fit` 참고).
     public static func alignments(bundle: CaptureBundle, template t: BustTemplate) -> [ShotKind: simd_float4x4] {
-        let pc = t.patchCount
-        let templatePatch = Array(t.patchPositions)
-        let templateAnchor = eyeMidpoint(templatePatch, manifest: t.manifest)
         var out: [ShotKind: simd_float4x4] = [:]
         for shot in bundle.shots {
-            let raw = shot.meta.faceVertexArray
-            guard raw.count == pc, let T = Procrustes.fit(source: raw, target: templatePatch, allowScale: true) else { continue }
-            let rotated = raw.map { T.rotation.act($0) }
-            let shift = templateAnchor - eyeMidpoint(rotated, manifest: t.manifest)
-            var m = simd_float4x4(T.rotation)
-            m.columns.3 = SIMD4(shift, 1)
-            out[shot.kind] = m
+            if shot.meta.isSparse {
+                if let c = SparseFitter.correspondences(shot: shot, template: t) { out[shot.kind] = c.alignment }
+            } else if let F = FacePatchSolver.alignment(raw: shot.meta.faceVertexArray, template: t) {
+                out[shot.kind] = F
+            }
         }
         return out
-    }
-
-    static func eyeLandmarks(_ m: TemplateManifest, count: Int) -> (Int, Int, Int, Int)? {
-        guard let oL = m.landmark(.eyeLeftOuter), let iL = m.landmark(.eyeLeftInner), let iR = m.landmark(.eyeRightInner), let oR = m.landmark(.eyeRightOuter),
-              [oL, iL, iR, oR].allSatisfy({ $0 < count }) else { return nil }
-        return (oL, iL, iR, oR)
-    }
-
-    /// 눈 중점 (랜드마크 없으면 패치 무게중심).
-    static func eyeMidpoint(_ patch: [SIMD3<Float>], manifest m: TemplateManifest) -> SIMD3<Float> {
-        guard let (oL, iL, iR, oR) = eyeLandmarks(m, count: patch.count) else { return patch.reduce(.zero, +) / Float(max(1, patch.count)) }
-        return (patch[oL] + patch[iL] + patch[iR] + patch[oR]) / 4
-    }
-
-    /// 랜드마크(눈 안/바깥 꼬리)로 눈 간격. 랜드마크가 없으면 manifest 의 눈 중심 간격.
-    static func eyeSpacing(_ patch: [SIMD3<Float>], manifest m: TemplateManifest) -> Float {
-        guard let (oL, iL, iR, oR) = eyeLandmarks(m, count: patch.count) else {
-            return simd_length(m.eyeCenterL - m.eyeCenterR)
-        }
-        let cL = (patch[oL] + patch[iL]) / 2, cR = (patch[oR] + patch[iR]) / 2
-        return simd_length(cL - cR)
-    }
-
-    static func eyeCenters(_ patch: [SIMD3<Float>], manifest m: TemplateManifest, radius: Float,
-                           fallbackL: SIMD3<Float>, fallbackR: SIMD3<Float>) -> (SIMD3<Float>, SIMD3<Float>) {
-        guard let (oL, iL, iR, oR) = eyeLandmarks(m, count: patch.count) else { return (fallbackL, fallbackR) }
-        // 눈꺼풀 표면 중심에서 안쪽(−Z)으로 반지름의 0.85 만큼 (각막이 표면 바로 뒤)
-        let cL = (patch[oL] + patch[iL]) / 2 - SIMD3(0, 0, radius * 0.85)
-        let cR = (patch[oR] + patch[iR]) / 2 - SIMD3(0, 0, radius * 0.85)
-        return (cL, cR)
     }
 }
 
@@ -175,7 +145,7 @@ public enum HeadPropagator {
             if shoulders.contains(i) {
                 base[i] = SIMD3(base[i].x * s, base[i].y, base[i].z * s)     // 어깨: 가로·앞뒤 스케일만
             } else if neck.contains(i) {
-                let w = smooth((base[i].y - options.neckFalloffBottom) / max(1e-4, options.neckFalloffTop - options.neckFalloffBottom))
+                let w = neckWeight(y: base[i].y, options: options)
                 let sc = SIMD3(base[i].x * s, base[i].y, base[i].z * s)
                 base[i] = S.apply(base[i]) * w + sc * (1 - w)
             } else {
@@ -211,10 +181,7 @@ public enum HeadPropagator {
                 for b in boundaryPts { dmin = min(dmin, simd_length_squared(base[i] - b)) }
                 v *= exp(-dmin / (sigma * sigma))
             }
-            if neck.contains(i) {
-                let w = smooth((base[i].y - options.neckFalloffBottom) / max(1e-4, options.neckFalloffTop - options.neckFalloffBottom))
-                v *= w
-            }
+            if neck.contains(i) { v *= neckWeight(y: base[i].y, options: options) }
             d[i] = v
         }
         // (c) 좌우 대칭 보정 (패치 밖만)
@@ -233,6 +200,11 @@ public enum HeadPropagator {
         for i in pc..<out.count { out[i] += d[i] }
         for i in 0..<pc { out[i] = userPatch[i] }
         return (out, rbf.lambda, rbf.pivotRatio)
+    }
+
+    /// 목 감쇠 가중치: `neckFalloffTop` 위 = 1, `neckFalloffBottom` 아래 = 0 (smoothstep).
+    public static func neckWeight(y: Float, options: FitOptions) -> Float {
+        smooth((y - options.neckFalloffBottom) / max(1e-4, options.neckFalloffTop - options.neckFalloffBottom))
     }
 
     static func smooth(_ x: Float) -> Float { let t = min(1, max(0, x)); return t * t * (3 - 2 * t) }

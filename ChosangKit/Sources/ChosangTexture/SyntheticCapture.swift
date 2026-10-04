@@ -63,13 +63,17 @@ public enum SyntheticCapture {
         var rng = SplitMix64(seed: o.seed)
         var shots: [CaptureShot] = []
         let pc = t.patchCount
+        // 렌더 메시(코너 UV)로 그린다 — 투영기·텍스처 빌더가 쓰는 UV 와 같은 공간에 알베도를 칠해야 PSNR 비교가 성립한다
+        // (합성 템플릿의 뒤통수는 정점 UV 와 코너 UV 가 u 축에서 1.31배 다르다. M4 에서 발견: 얼굴 40 dB, 두상 18 dB 의 원인).
+        let render = t.makeRenderMesh()
         for (i, kind) in kinds.enumerated() {
             let weights = expression(for: kind)
             let deformed = t.deformedPositions(weights: weights, base: base)
-            let normals = Geometry.vertexNormals(positions: deformed, indices: t.indices)
+            let rPos = render.expand(deformed)
+            let normals = Geometry.vertexNormals(positions: rPos, indices: render.indices)
             let cam = camera(for: kind, options: o)
             let l = -o.lightDirection
-            let out = SoftwareRasterizer.render(positions: deformed, normals: normals, uvs: t.uvs, indices: t.indices,
+            let out = SoftwareRasterizer.render(positions: rPos, normals: normals, uvs: render.uvs, indices: render.indices,
                                                 camera: cam, width: o.imageWidth, height: o.imageHeight) { uv, n, _ in
                 albedo(uv.x, uv.y) * (0.35 + 0.65 * max(0, simd_dot(n, l)))
             }
@@ -97,6 +101,39 @@ public enum SyntheticCapture {
         }
         let bmeta = CaptureBundleMeta(device: "synthetic", sparse: false,
                                       arkitTriangleHash: t.manifest.patchTriangleHash, arkitVertexCount: pc, shots: shots.map(\.meta))
+        return CaptureBundle(meta: bmeta, shots: shots)
+    }
+
+    /// 희소(사진 폴백, TrueDepth 없음) 합성 번들: 키포인트 8점짜리 컷 여러 장. `chosang-validate --make-fixture <file> sparse[-perturbed]`
+    /// 와 `ChosangFit` 쪽 다시점 테스트(`FitTests.sparseBundle`)가 같은 모양으로 쓴다 — 실기기 맥 캡처가 없을 때 T-306 다시점
+    /// 경로(SparseFitter 삼각측량 + TextureBuilder 투영)를 끝까지 돌려보는 용도.
+    public static func makeSparseBundle(template t: BustTemplate, userPositions: [SIMD3<Float>]? = nil,
+                                        kinds: [ShotKind] = [.front, .left, .right, .up],
+                                        options o: SyntheticCaptureOptions = SyntheticCaptureOptions()) -> CaptureBundle {
+        let user = userPositions ?? t.positions
+        let normals = Geometry.vertexNormals(positions: user, indices: t.indices)
+        var faceT = matrix_identity_float4x4
+        faceT.columns.3 = SIMD4(faceAnchorOrigin, 1)
+        var metas: [CaptureShotMeta] = [], shots: [CaptureShot] = []
+        for kind in kinds {
+            let cam = camera(for: kind, options: o)
+            let w2c = cam.worldToCamera
+            var key: [LandmarkName: SIMD2<Float>] = [:]
+            for name in [LandmarkName.eyeLeftInner, .eyeLeftOuter, .eyeRightInner, .eyeRightOuter, .noseTip, .mouthLeft, .mouthRight, .chin] {
+                guard let v = t.manifest.landmark(name), let px = cam.intrinsics.project(Geometry.transformPoint(w2c, user[v])) else { continue }
+                key[name] = px
+            }
+            let img = SoftwareRasterizer.render(positions: user, normals: normals, uvs: t.uvs, indices: t.indices, camera: cam,
+                                                width: o.imageWidth, height: o.imageHeight) { uv, n, _ in
+                SyntheticAlbedo.color(u: uv.x, v: uv.y) * (0.35 + 0.65 * max(0, n.z))
+            }.color
+            let meta = CaptureShotMeta(kind: kind, imageFile: "shot-\(kind.rawValue).jpg", depthFile: nil, imageWidth: o.imageWidth, imageHeight: o.imageHeight,
+                                       depthWidth: nil, depthHeight: nil, intrinsics: cam.intrinsics, cameraTransform: cam.transform, faceTransform: faceT,
+                                       faceVertices: [], blendShapes: ArkitWeights(), light: LightEstimate(), averagedFrames: 1, timestamp: 0,
+                                       landmarks2D: [], keyPoints2D: key, faceBox: nil, poseEstimate: .zero, intrinsicsEstimated: false)
+            metas.append(meta); shots.append(CaptureShot(meta: meta, image: img, depth: nil))
+        }
+        let bmeta = CaptureBundleMeta(device: "synthetic-sparse", sparse: true, arkitTriangleHash: nil, arkitVertexCount: 0, shots: metas)
         return CaptureBundle(meta: bmeta, shots: shots)
     }
 

@@ -80,13 +80,20 @@ struct SparseCaptureTests {
         #expect(abs(yp.yaw - 30) < 0.01 && abs(yp.pitch - 15) < 0.01)
     }
 
-    @Test("희소 컷 meta.json 왕복 + 옛 번들(필드 없음) 호환 + 밀집 피팅은 명확히 거부")
+    @Test("희소 컷 meta.json 왕복 + 옛 번들(필드 없음) 호환 + 희소 번들은 SparseFitter 로 (M3 T-306)")
     func metaRoundTripAndFitterRejects() throws {
-        let K = SparseFaceGeometry.intrinsics(horizontalFOVDegrees: 60, width: 640, height: 480)
+        // syntheticKeyPoints() 는 1920×1080 용(픽셀이 900~1100대) 이라 intrinsics 도 그 크기로 맞춘다 — 640×480 과 섞으면
+        // 주점이 멀어져 랜드마크가 다 카메라 주변부(접선에 가까운 각도)가 되고, SparseFitter 의 광선-법선 가중치가 다 걸러버린다.
+        let K = SparseFaceGeometry.intrinsics(horizontalFOVDegrees: 60, width: 1920, height: 1080)
         let k = Self.syntheticKeyPoints()
         let pts = (0..<76).map { SIMD2<Float>(Float($0), Float($0) * 2) }
-        let meta = CaptureShotMeta(kind: .front, imageFile: "shot-front.jpg", depthFile: nil, imageWidth: 640, imageHeight: 480, depthWidth: nil, depthHeight: nil,
-                                   intrinsics: K, cameraTransform: matrix_identity_float4x4, faceTransform: matrix_identity_float4x4,
+        // faceTransform 은 identity 가 아니라 실제 맥 캡처처럼(PhotoCaptureSession) 눈 중점·포즈에서 추정한다 —
+        // identity 면 "카메라가 정면을 본다" 가 아니라 템플릿·카메라 좌표축이 그냥 같다는 뜻이라, SparseFitter 의
+        // 광선-법선 가중치(T-306 다시점)가 말이 안 되는 방향을 보고 랜드마크를 버린다.
+        let eyes = SparseFaceGeometry.eyeCenters(k)!
+        let faceT = SparseFaceGeometry.estimateFaceTransform(eyeLeft: eyes.left, eyeRight: eyes.right, poseDegrees: .zero, intrinsics: K)
+        let meta = CaptureShotMeta(kind: .front, imageFile: "shot-front.jpg", depthFile: nil, imageWidth: 1920, imageHeight: 1080, depthWidth: nil, depthHeight: nil,
+                                   intrinsics: K, cameraTransform: matrix_identity_float4x4, faceTransform: faceT,
                                    faceVertices: [], blendShapes: ArkitWeights(), light: LightEstimate(), averagedFrames: 8, timestamp: 1,
                                    landmarks2D: pts, keyPoints2D: k, faceBox: CGRect(x: 10, y: 20, width: 300, height: 320), poseEstimate: SIMD3(1, 2, 3), intrinsicsEstimated: true)
         #expect(meta.isSparse)
@@ -104,18 +111,21 @@ struct SparseCaptureTests {
         #expect(old.landmarks2D == nil && !old.isSparse && old.landmarkArray.isEmpty)
 
         // 번들 저장 → 읽기 (이미지 포함) 왕복
-        let img = RGBAImage(width: 640, height: 480, fill: SIMD4(200, 150, 120, 255))
+        let img = RGBAImage(width: 1920, height: 1080, fill: SIMD4(200, 150, 120, 255))
         let bundle = CaptureBundle(meta: CaptureBundleMeta(device: "test", sparse: true, arkitTriangleHash: nil, arkitVertexCount: 0, shots: [meta]), shots: [CaptureShot(meta: meta, image: img, depth: nil)])
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sparse-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try CaptureBundleStore.write(bundle, to: dir)
         let read = try CaptureBundleStore.read(from: dir)
-        #expect(read.meta.sparse && read.shots.count == 1 && read.shots[0].meta.landmarkArray.count == 76 && read.shots[0].image?.width == 640 && read.shots[0].depth == nil)
+        #expect(read.meta.sparse && read.shots.count == 1 && read.shots[0].meta.landmarkArray.count == 76 && read.shots[0].image?.width == 1920 && read.shots[0].depth == nil)
 
-        // 밀집 피팅은 sparse 번들을 한국어 사유로 거부한다
+        // M0–M2 에는 sparse 번들을 거부했지만, M3 부터 `FaceFitter.fit` 이 `SparseFitter`(T-306) 로 보낸다 — 8 핵심점이면 돈다
         let t = SyntheticTemplate.make()
-        #expect(throws: FitError.self) { try FaceFitter.fit(bundle: read, template: t) }
-        do { _ = try FaceFitter.fit(bundle: read, template: t) } catch let e as FitError {
+        let id = try FaceFitter.fit(bundle: read, template: t)
+        #expect(id.quality?.method == "sparse" && id.positions.count == t.vertexCount && id.scale == 1)
+        // 밀집 솔버에 직접 넣으면 여전히 한국어 사유로 거부한다
+        #expect(throws: FitError.self) { try FacePatchSolver.solve(bundle: read, template: t) }
+        do { _ = try FacePatchSolver.solve(bundle: read, template: t) } catch let e as FitError {
             #expect(e.errorDescription?.contains("희소") == true)
         }
     }

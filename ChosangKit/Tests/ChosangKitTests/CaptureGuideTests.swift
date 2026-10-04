@@ -6,9 +6,9 @@ import Foundation
 /// T-202 가이드 상태 기계.
 @Suite("캡처 가이드 (T-202)")
 struct CaptureGuideTests {
-    @Test("게이트를 0.7 s 유지하면 한 번만 촬영 신호, 흔들리면 타이머 리셋")
+    @Test("게이트를 0.7 s 유지하면 한 번만 촬영 신호, 흔들리면 타이머 리셋 (유예 0)")
     func holdTimer() {
-        var g = CaptureGuide(holdSeconds: 0.7)
+        var g = CaptureGuide(holdSeconds: 0.7, graceSeconds: 0)
         // #expect 매크로 안에서는 mutating 호출을 못 하므로 결과를 먼저 받는다
         func tick(_ ok: Bool, _ t: Double) -> Bool { g.update(gateOK: ok, now: t) }
         #expect(g.current == .front)
@@ -21,6 +21,28 @@ struct CaptureGuideTests {
         let e = tick(true, 11.7); #expect(e)               // 0.7 s 유지 → 촬영
         #expect(g.holdProgress == 0)
         let f = tick(true, 11.75); #expect(!f)             // 리셋 후 다시 시작
+    }
+
+    @Test("유예: 유지 중 게이트가 잠깐 빠져도 타이머가 살아 있고, 유예를 넘기면 리셋한다")
+    func graceKeepsTimer() {
+        var g = CaptureGuide(holdSeconds: 0.5, graceSeconds: 0.35)
+        func tick(_ ok: Bool, _ t: Double) -> Bool { g.update(gateOK: ok, now: t) }
+        _ = tick(true, 10.0)
+        _ = tick(true, 10.2)
+        #expect(abs(g.holdProgress - 0.4) < 1e-9)
+        let a = tick(false, 10.3); #expect(!a)             // 0.1 s 이탈 — 유예 안: 진행률 유지, 신호 없음
+        #expect(abs(g.holdProgress - 0.4) < 1e-9 && g.holdStart == 10.0)
+        let b = tick(false, 10.4); #expect(!b)             // 0.2 s 이탈 — 아직 유예 안
+        let c = tick(true, 10.5); #expect(c)               // 돌아오자마자 0.5 s 경과 → 촬영 (이탈 틱에서는 절대 안 찍는다)
+        #expect(g.holdProgress == 0)
+        // 유예를 넘기면 리셋
+        _ = tick(true, 20.0)
+        _ = tick(true, 20.2)
+        _ = tick(false, 20.3)
+        let d = tick(false, 20.7); #expect(!d)             // 마지막 통과(20.2)에서 0.5 s → 유예(0.35) 초과 → 리셋
+        #expect(g.holdProgress == 0 && g.holdStart == nil)
+        let e = tick(true, 20.8); #expect(!e)              // 처음부터 다시
+        #expect(g.holdStart == 20.8)
     }
 
     @Test("촬영 → 다음 스텝, 건너뛰기, 재촬영, 완료")

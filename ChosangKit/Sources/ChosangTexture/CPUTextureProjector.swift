@@ -66,7 +66,7 @@ public enum CPUTextureProjector {
                 guard px.x >= 1, px.y >= 1, px.x < Float(c.image.width - 1), px.y < Float(c.image.height - 1) else { continue }
                 let viewDir = simd_normalize(c.camPos - pos)
                 let cosv = simd_dot(nrm, viewDir)
-                guard cosv > 0.08 else { continue }
+                guard cosv > 0.3 else { continue }
                 // 깊이 테스트
                 if let d = c.depth, let Kd = c.Kd, let pd = Kd.project(pc), let captured = d.sample(pd) {
                     if abs(captured - (-pc.z)) > o.depthTolerance { continue }
