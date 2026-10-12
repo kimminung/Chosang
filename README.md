@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/14ce87fe-a99b-4beb-9ac7-0e49f12655a8
+
 # 초상 (Chosang)
 
 **사진 3–5장으로 만드는 나만의 흉상 페르소나** — visionOS 27 · iOS 26 · macOS 26.
