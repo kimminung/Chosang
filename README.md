@@ -7,6 +7,13 @@
 > M1(템플릿)·M2(캡처)·M3(피팅)·M4(텍스처) 완료, M6 전송·저장 동작. 블렌더 템플릿 검증기 **오류 0 · 경고 0**, 테스트 75개.
 > 실기기 확인: iPhone 16(전면 TrueDepth) 가이드 캡처 · Mac 사진 폴백 · Vision Pro 수신·피팅·텍스처·90 fps.
 
+## 소개 영상
+
+[![초상 소개 영상 — 다섯 장의 사진, 하나의 초상](Docs/video/chosang-intro-poster.jpg)](Docs/video/chosang-intro.mp4)
+
+1080p · 52초 · 배경음 포함. 이미지를 누르면 영상 파일(`Docs/video/chosang-intro.mp4`)로 이동한다.
+[소반](https://github.com/kimminung/Soban) → 초상 → [코르소나](https://github.com/kimminung/coursona)로 이어지는 변화 과정은 코르소나 리포의 [「얼굴이 되기까지」](https://github.com/kimminung/coursona/blob/main/Docs/video/evolution.mp4) 영상에 담았다.
+
 ## 완성된 모습 — Vision Pro 실기기
 
 iPhone 16 전면 TrueDepth 로 5컷을 찍어 Vision Pro 로 보내고, 그 자리에서 피팅 + 텍스처까지 돌린 결과다. 형상도 피부도 내 얼굴이다.
