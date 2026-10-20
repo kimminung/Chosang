@@ -13,9 +13,9 @@ https://github.com/user-attachments/assets/14ce87fe-a99b-4beb-9ac7-0e49f12655a8
 
 ## 소개 영상
 
-[![초상 소개 영상 — 다섯 장의 사진, 하나의 초상](Docs/video/chosang-intro-poster.jpg)](Docs/video/chosang-intro.mp4)
+[![초상 소개 영상 — 다섯 장의 사진, 하나의 초상](Docs/video/chosang-intro.gif)](Docs/video/chosang-intro.mp4)
 
-1080p · 52초 · 배경음 포함. 이미지를 누르면 영상 파일(`Docs/video/chosang-intro.mp4`)로 이동한다.
+위 미리보기(GIF, 24초)를 누르면 1080p · 52초 · 배경음이 들어간 원본 영상(`Docs/video/chosang-intro.mp4`)으로 이동한다.
 [소반](https://github.com/kimminung/Soban) → 초상 → [코르소나](https://github.com/kimminung/coursona)로 이어지는 변화 과정은 코르소나 리포의 [「얼굴이 되기까지」](https://github.com/kimminung/coursona/blob/main/Docs/video/evolution.mp4) 영상에 담았다.
 
 ## 완성된 모습 — Vision Pro 실기기
